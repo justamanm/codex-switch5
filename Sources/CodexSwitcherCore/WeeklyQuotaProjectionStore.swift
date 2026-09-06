@@ -17,6 +17,8 @@ public final class WeeklyQuotaProjectionStore: @unchecked Sendable {
 
     private struct AccountState: Codable {
         var resetAt: String
+        var start: Sample?
+        /// 兼容旧版文件；旧字段只用于成功解码，不再参与计算。
         var sample: Sample?
         var observedUsedPercent: Int
         var observedUSD: Double
@@ -43,23 +45,19 @@ public final class WeeklyQuotaProjectionStore: @unchecked Sendable {
         unpricedEvents: Int
     ) throws {
         var states = loadStates()
-        var state = states[account]
-        if state.map({ !Self.sameQuotaCycle($0.resetAt, resetAt) }) ?? true {
-            state = AccountState(
-                resetAt: resetAt,
-                sample: nil,
-                observedUsedPercent: 0,
-                observedUSD: 0,
-                isPartial: false,
-                projection: nil
-            )
-        }
-        state?.sample = Sample(
-            remainingPercent: remainingPercent,
-            estimatedUSD: estimatedUSD,
-            unpricedEvents: unpricedEvents
+        states[account] = AccountState(
+            resetAt: resetAt,
+            start: Sample(
+                remainingPercent: remainingPercent,
+                estimatedUSD: estimatedUSD,
+                unpricedEvents: unpricedEvents
+            ),
+            sample: nil,
+            observedUsedPercent: 0,
+            observedUSD: 0,
+            isPartial: false,
+            projection: nil
         )
-        states[account] = state
         try save(states)
     }
 
@@ -71,7 +69,7 @@ public final class WeeklyQuotaProjectionStore: @unchecked Sendable {
         unpricedEvents: Int
     ) throws {
         let state = loadStates()[account]
-        guard (state.map { !Self.sameQuotaCycle($0.resetAt, resetAt) } ?? true) || state?.sample == nil else { return }
+        guard (state.map { !Self.sameQuotaCycle($0.resetAt, resetAt) } ?? true) || state?.start == nil else { return }
         try begin(
             account: account,
             resetAt: resetAt,
@@ -90,30 +88,8 @@ public final class WeeklyQuotaProjectionStore: @unchecked Sendable {
         unpricedEvents: Int,
         at date: Date = Date()
     ) throws -> WeeklyQuotaProjection? {
-        var states = loadStates()
-        guard var state = states[account], Self.sameQuotaCycle(state.resetAt, resetAt), let sample = state.sample else {
-            return nil
-        }
-        state.sample = nil
-        let usedPercent = sample.remainingPercent - remainingPercent
-        let usedUSD = estimatedUSD - sample.estimatedUSD
-        if usedPercent > 0 {
-            state.observedUsedPercent += usedPercent
-            state.observedUSD += max(0, usedUSD)
-            state.isPartial = state.isPartial || usedUSD <= 0 || unpricedEvents > sample.unpricedEvents
-            if state.observedUSD > 0 {
-                state.projection = WeeklyQuotaProjection(
-                    estimatedFullUSD: state.observedUSD / Double(state.observedUsedPercent) * 100,
-                    observedUsedPercent: state.observedUsedPercent,
-                    observedUSD: state.observedUSD,
-                    isPartial: state.isPartial,
-                    updatedAt: date
-                )
-            }
-        }
-        states[account] = state
-        try save(states)
-        return state.projection
+        try observe(account: account, resetAt: resetAt, remainingPercent: remainingPercent,
+                    estimatedUSD: estimatedUSD, unpricedEvents: unpricedEvents, at: date)
     }
 
     @discardableResult
@@ -126,35 +102,36 @@ public final class WeeklyQuotaProjectionStore: @unchecked Sendable {
         at date: Date = Date()
     ) throws -> WeeklyQuotaProjection? {
         var states = loadStates()
-        guard var state = states[account], Self.sameQuotaCycle(state.resetAt, resetAt), let sample = state.sample else {
+        guard var state = states[account], Self.sameQuotaCycle(state.resetAt, resetAt), let start = state.start else {
             return nil
         }
-        let usedPercent = sample.remainingPercent - remainingPercent
-        let usedUSD = estimatedUSD - sample.estimatedUSD
+        let usedPercent = start.remainingPercent - remainingPercent
+        let usedUSD = estimatedUSD - start.estimatedUSD
         if usedPercent > 0 {
-            state.observedUsedPercent += usedPercent
-            state.observedUSD += max(0, usedUSD)
-            state.isPartial = state.isPartial || usedUSD <= 0 || unpricedEvents > sample.unpricedEvents
-            if state.observedUSD > 0 {
+            state.observedUsedPercent = usedPercent
+            state.observedUSD = max(0, usedUSD)
+            state.isPartial = usedUSD <= 0 || unpricedEvents > start.unpricedEvents
+            if usedUSD > 0 {
                 state.projection = WeeklyQuotaProjection(
-                    estimatedFullUSD: state.observedUSD / Double(state.observedUsedPercent) * 100,
-                    observedUsedPercent: state.observedUsedPercent,
-                    observedUSD: state.observedUSD,
+                    estimatedFullUSD: usedUSD / Double(usedPercent) * 100,
+                    observedUsedPercent: usedPercent,
+                    observedUSD: usedUSD,
                     isPartial: state.isPartial,
                     updatedAt: date
                 )
+            } else {
+                state.projection = nil
             }
-            state.sample = Sample(
-                remainingPercent: remainingPercent,
-                estimatedUSD: estimatedUSD,
-                unpricedEvents: unpricedEvents
-            )
         } else if usedPercent < 0 {
-            state.sample = Sample(
+            state.start = Sample(
                 remainingPercent: remainingPercent,
                 estimatedUSD: estimatedUSD,
                 unpricedEvents: unpricedEvents
             )
+            state.observedUsedPercent = 0
+            state.observedUSD = 0
+            state.isPartial = false
+            state.projection = nil
         }
         states[account] = state
         try save(states)
