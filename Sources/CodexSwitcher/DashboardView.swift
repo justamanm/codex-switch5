@@ -745,6 +745,7 @@ private struct AccountDashboardRow: View {
     @EnvironmentObject private var model: AppModel
     @State private var showingActions = false
     private let accent = Color(red: 0.31, green: 0.57, blue: 0.39)
+    private let recommendedAccent = Color(red: 0.25, green: 0.48, blue: 0.72)
     let account: AccountUsage
     let displayName: String
     let identityHelp: String
@@ -770,10 +771,10 @@ private struct AccountDashboardRow: View {
         .padding(.horizontal, usesCompactLayout ? 24 : 15)
         .padding(.vertical, usesCompactLayout ? 5 : 9)
         .frame(maxWidth: .infinity)
-        .background(.background, in: RoundedRectangle(cornerRadius: 12))
+        .background(rowBackground, in: RoundedRectangle(cornerRadius: 12))
         .overlay(
             RoundedRectangle(cornerRadius: 12)
-                .stroke(isRecommended ? accent.opacity(0.38) : Color.secondary.opacity(0.16))
+                .stroke(rowBorder)
         )
     }
 
@@ -965,9 +966,21 @@ private struct AccountDashboardRow: View {
     }
 
     private var accountNameColor: Color {
-        if isCurrent { return .primary }
-        if isRecommended { return accent }
+        if isCurrent { return accent }
+        if isRecommended { return recommendedAccent }
         return .primary
+    }
+
+    private var rowBackground: Color {
+        if isCurrent { return accent.opacity(0.10) }
+        if isRecommended { return recommendedAccent.opacity(0.08) }
+        return Color(nsColor: .controlBackgroundColor)
+    }
+
+    private var rowBorder: Color {
+        if isCurrent { return accent.opacity(0.48) }
+        if isRecommended { return recommendedAccent.opacity(0.40) }
+        return Color.secondary.opacity(0.16)
     }
 
 }

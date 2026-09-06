@@ -97,17 +97,19 @@ public final class WeeklyQuotaProjectionStore: @unchecked Sendable {
         state.sample = nil
         let usedPercent = sample.remainingPercent - remainingPercent
         let usedUSD = estimatedUSD - sample.estimatedUSD
-        if usedPercent > 0, usedUSD > 0 {
+        if usedPercent > 0 {
             state.observedUsedPercent += usedPercent
-            state.observedUSD += usedUSD
-            state.isPartial = state.isPartial || unpricedEvents > sample.unpricedEvents
-            state.projection = WeeklyQuotaProjection(
-                estimatedFullUSD: state.observedUSD / Double(state.observedUsedPercent) * 100,
-                observedUsedPercent: state.observedUsedPercent,
-                observedUSD: state.observedUSD,
-                isPartial: state.isPartial,
-                updatedAt: date
-            )
+            state.observedUSD += max(0, usedUSD)
+            state.isPartial = state.isPartial || usedUSD <= 0 || unpricedEvents > sample.unpricedEvents
+            if state.observedUSD > 0 {
+                state.projection = WeeklyQuotaProjection(
+                    estimatedFullUSD: state.observedUSD / Double(state.observedUsedPercent) * 100,
+                    observedUsedPercent: state.observedUsedPercent,
+                    observedUSD: state.observedUSD,
+                    isPartial: state.isPartial,
+                    updatedAt: date
+                )
+            }
         }
         states[account] = state
         try save(states)
@@ -129,23 +131,25 @@ public final class WeeklyQuotaProjectionStore: @unchecked Sendable {
         }
         let usedPercent = sample.remainingPercent - remainingPercent
         let usedUSD = estimatedUSD - sample.estimatedUSD
-        if usedPercent > 0, usedUSD > 0 {
+        if usedPercent > 0 {
             state.observedUsedPercent += usedPercent
-            state.observedUSD += usedUSD
-            state.isPartial = state.isPartial || unpricedEvents > sample.unpricedEvents
-            state.projection = WeeklyQuotaProjection(
-                estimatedFullUSD: state.observedUSD / Double(state.observedUsedPercent) * 100,
-                observedUsedPercent: state.observedUsedPercent,
-                observedUSD: state.observedUSD,
-                isPartial: state.isPartial,
-                updatedAt: date
-            )
+            state.observedUSD += max(0, usedUSD)
+            state.isPartial = state.isPartial || usedUSD <= 0 || unpricedEvents > sample.unpricedEvents
+            if state.observedUSD > 0 {
+                state.projection = WeeklyQuotaProjection(
+                    estimatedFullUSD: state.observedUSD / Double(state.observedUsedPercent) * 100,
+                    observedUsedPercent: state.observedUsedPercent,
+                    observedUSD: state.observedUSD,
+                    isPartial: state.isPartial,
+                    updatedAt: date
+                )
+            }
             state.sample = Sample(
                 remainingPercent: remainingPercent,
                 estimatedUSD: estimatedUSD,
                 unpricedEvents: unpricedEvents
             )
-        } else if usedPercent < 0 || usedUSD < 0 {
+        } else if usedPercent < 0 {
             state.sample = Sample(
                 remainingPercent: remainingPercent,
                 estimatedUSD: estimatedUSD,
