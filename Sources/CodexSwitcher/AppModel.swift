@@ -824,6 +824,7 @@ final class AppModel: ObservableObject {
                     continue
                 }
                 try session.complete()
+                let previousAccount = currentName
                 reauthenticationSession = nil
                 reauthenticatingAccount = nil
                 isAddingAccount = false
@@ -831,6 +832,7 @@ final class AppModel: ObservableObject {
                 addAccountUsesChatGPT = false
                 showingAddAccount = false
                 loadFromDisk()
+                recordAccountOperation(action: .reauthenticate, from: previousAccount, to: reauthAccount)
                 configureAutomaticRefresh()
                 let shouldRestartCLI = loginRequiresCLIRestart
                 loginRequiresCLIRestart = false
@@ -842,6 +844,7 @@ final class AppModel: ObservableObject {
                 return
             } else if let identity = identity(from: authURL), let session = loginSession {
                 let internalName = availableInternalName(for: identity)
+                let previousAccount = currentName
                 // 此处到登记完成没有等待点，取消不会插入到一半。
                 try session.complete(account: internalName)
                 loginSession = nil
@@ -850,6 +853,7 @@ final class AppModel: ObservableObject {
                 addAccountUsesChatGPT = false
                 showingAddAccount = false
                 loadFromDisk()
+                recordAccountOperation(action: .addAccount, from: previousAccount, to: internalName)
                 configureAutomaticRefresh()
                 let shouldRestartCLI = loginRequiresCLIRestart
                 loginRequiresCLIRestart = false
@@ -861,6 +865,19 @@ final class AppModel: ObservableObject {
                 return
             }
             try await Task.sleep(for: .seconds(2))
+        }
+    }
+
+    private func recordAccountOperation(action: AccountHistoryAction, from: String, to: String) {
+        do {
+            switchHistory = try switchHistoryStore.append(SwitchHistoryRecord(
+                fromAccount: from,
+                toAccount: to,
+                result: .success,
+                action: action
+            ))
+        } catch {
+            lastError = text("无法保存切换记录：%@", error.localizedDescription)
         }
     }
 

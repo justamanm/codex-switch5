@@ -561,7 +561,7 @@ struct DashboardView: View {
                 ContentUnavailableView(
                     model.text("暂无切换记录"),
                     systemImage: "clock.arrow.circlepath",
-                    description: Text(model.text("完成一次账号切换后会显示在这里。"))
+                    description: Text(model.text("完成账号切换、添加或重新登录后会显示在这里。"))
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             } else {
@@ -570,7 +570,7 @@ struct DashboardView: View {
                         Image(systemName: record.result == .success ? "checkmark.circle.fill" : "xmark.circle.fill")
                             .foregroundStyle(record.result == .success ? Color.green : Color.red)
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(model.text("%@ → %@", model.displayName(for: record.fromAccount), model.displayName(for: record.toAccount)))
+                            Text(historyTitle(record))
                                 .font(.headline)
                             Text(record.timestamp.formatted(
                                 .dateTime.year().month().day().hour().minute().second().locale(model.appLanguage.locale)
@@ -589,6 +589,17 @@ struct DashboardView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func historyTitle(_ record: SwitchHistoryRecord) -> String {
+        switch record.resolvedAction {
+        case .switchAccount:
+            return model.text("%@ → %@", model.displayName(for: record.fromAccount), model.displayName(for: record.toAccount))
+        case .addAccount:
+            return model.text("新增账号：%@", model.displayName(for: record.toAccount))
+        case .reauthenticate:
+            return model.text("重新登录：%@", model.displayName(for: record.toAccount))
+        }
     }
 
     private func compactTokens(_ value: Int) -> String {

@@ -1,6 +1,7 @@
 import Foundation
 
 public enum SwitchResult: String, Codable, Sendable { case success, failure }
+public enum AccountHistoryAction: String, Codable, Sendable { case switchAccount, addAccount, reauthenticate }
 
 public struct SwitchHistoryRecord: Codable, Identifiable, Equatable, Sendable {
     public let id: UUID
@@ -9,15 +10,19 @@ public struct SwitchHistoryRecord: Codable, Identifiable, Equatable, Sendable {
     public let toAccount: String
     public let result: SwitchResult
     public let message: String
+    public let action: AccountHistoryAction?
 
-    public init(id: UUID = UUID(), timestamp: Date = Date(), fromAccount: String, toAccount: String, result: SwitchResult, message: String = "") {
+    public init(id: UUID = UUID(), timestamp: Date = Date(), fromAccount: String, toAccount: String, result: SwitchResult, message: String = "", action: AccountHistoryAction = .switchAccount) {
         self.id = id
         self.timestamp = timestamp
         self.fromAccount = fromAccount
         self.toAccount = toAccount
         self.result = result
         self.message = message
+        self.action = action
     }
+
+    public var resolvedAction: AccountHistoryAction { action ?? .switchAccount }
 }
 
 public final class SwitchHistoryStore: @unchecked Sendable {

@@ -336,8 +336,10 @@ func checkSwitchHistory() throws {
     precondition(store.load().isEmpty)
     _ = try store.append(SwitchHistoryRecord(fromAccount: "alpha", toAccount: "beta", result: .success))
     _ = try store.append(SwitchHistoryRecord(fromAccount: "beta", toAccount: "gamma", result: .failure, message: "test"))
+    _ = try store.append(SwitchHistoryRecord(fromAccount: "gamma", toAccount: "delta", result: .success, action: .addAccount))
+    _ = try store.append(SwitchHistoryRecord(fromAccount: "delta", toAccount: "beta", result: .success, action: .reauthenticate))
     let records = store.load()
-    precondition(records.count == 2 && records[0].toAccount == "gamma" && records[1].toAccount == "beta")
-    print("切换记录检查通过：成功与失败记录按最新时间排列。")
+    precondition(records.count == 4 && records[0].resolvedAction == .reauthenticate && records[1].resolvedAction == .addAccount)
+    print("切换记录检查通过：切换、新增和重新登录记录按最新时间排列。")
 }
 try checkSwitchHistory()
