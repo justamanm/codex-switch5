@@ -9,6 +9,7 @@ struct DashboardView: View {
     @State private var selectedSection = DashboardSection.accounts
     @AppStorage("tokenUsageSortPeriod") private var tokenUsageSortPeriod = TokenUsageSortPeriod.fiveHours.rawValue
     private let accent = Color(red: 0.31, green: 0.57, blue: 0.39)
+    private let recommendedAccent = Color(red: 0.25, green: 0.48, blue: 0.72)
 
     private enum DashboardSection: String, CaseIterable {
         case accounts
@@ -186,7 +187,8 @@ struct DashboardView: View {
                 name: model.currentName.isEmpty ? model.text("未识别") : model.displayName(for: model.currentName),
                 identityHelp: model.identityHelp(for: model.currentName),
                 account: model.accounts.first { $0.name == model.currentName },
-                systemImage: model.currentType == "hub" ? "network" : "person.crop.circle.fill"
+                systemImage: model.currentType == "hub" ? "network" : "person.crop.circle.fill",
+                tint: accent
             )
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.leading, 80)
@@ -220,13 +222,14 @@ struct DashboardView: View {
                     name: model.displayName(for: account.name),
                     identityHelp: model.identityHelp(for: account.name),
                     account: account,
-                    systemImage: "leaf.fill"
+                    systemImage: "leaf.fill",
+                    tint: recommendedAccent
                 )
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .padding(.trailing, 32)
             } else {
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(model.text("下一个账号")).font(.callout.weight(.semibold)).foregroundStyle(accent)
+                    Text(model.text("下一个账号")).font(.callout.weight(.semibold)).foregroundStyle(recommendedAccent)
                     Text(model.text("暂无可用账号")).font(.title3.bold())
                     Text(model.text("请刷新额度后重试")).font(.callout).foregroundStyle(.secondary)
                 }
@@ -245,29 +248,32 @@ struct DashboardView: View {
         name: String,
         identityHelp: String,
         account: AccountUsage?,
-        systemImage: String
+        systemImage: String,
+        tint: Color
     ) -> some View {
         HStack(spacing: 12) {
             Image(systemName: systemImage)
                 .font(.system(size: 22, weight: .semibold))
-                .foregroundStyle(accent)
+                .foregroundStyle(tint)
                 .frame(width: 38, height: 38)
-                .background(accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
+                .background(tint.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
             VStack(alignment: .leading, spacing: 4) {
                 if accountsWidth > 0 && accountsWidth < 900 {
-                    Text(title).font(.callout.weight(.semibold)).foregroundStyle(accent)
+                    Text(title).font(.callout.weight(.semibold)).foregroundStyle(tint)
                     HoverAccountName(name: name, identityHelp: identityHelp, font: .title3.bold())
+                        .foregroundStyle(tint)
                         .lineLimit(1)
                         .layoutPriority(1)
                     overviewUsage(account)
                 } else {
                     HStack(alignment: .firstTextBaseline, spacing: 10) {
                         HoverAccountName(name: name, identityHelp: identityHelp, font: .title3.bold())
+                            .foregroundStyle(tint)
                             .lineLimit(1)
                             .layoutPriority(1)
                         Text(title)
                             .font(.callout.weight(.semibold))
-                            .foregroundStyle(accent)
+                            .foregroundStyle(tint)
                     }
                     overviewUsage(account)
                 }
@@ -973,13 +979,11 @@ private struct AccountDashboardRow: View {
 
     private var rowBackground: Color {
         if isCurrent { return accent.opacity(0.10) }
-        if isRecommended { return recommendedAccent.opacity(0.08) }
         return Color(nsColor: .controlBackgroundColor)
     }
 
     private var rowBorder: Color {
         if isCurrent { return accent.opacity(0.48) }
-        if isRecommended { return recommendedAccent.opacity(0.40) }
         return Color.secondary.opacity(0.16)
     }
 
