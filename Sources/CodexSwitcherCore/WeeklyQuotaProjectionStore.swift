@@ -44,7 +44,7 @@ public final class WeeklyQuotaProjectionStore: @unchecked Sendable {
     ) throws {
         var states = loadStates()
         var state = states[account]
-        if state?.resetAt != resetAt {
+        if state.map({ !Self.sameQuotaCycle($0.resetAt, resetAt) }) ?? true {
             state = AccountState(
                 resetAt: resetAt,
                 sample: nil,
@@ -71,7 +71,7 @@ public final class WeeklyQuotaProjectionStore: @unchecked Sendable {
         unpricedEvents: Int
     ) throws {
         let state = loadStates()[account]
-        guard state?.resetAt != resetAt || state?.sample == nil else { return }
+        guard (state.map { !Self.sameQuotaCycle($0.resetAt, resetAt) } ?? true) || state?.sample == nil else { return }
         try begin(
             account: account,
             resetAt: resetAt,
@@ -91,7 +91,7 @@ public final class WeeklyQuotaProjectionStore: @unchecked Sendable {
         at date: Date = Date()
     ) throws -> WeeklyQuotaProjection? {
         var states = loadStates()
-        guard var state = states[account], state.resetAt == resetAt, let sample = state.sample else {
+        guard var state = states[account], Self.sameQuotaCycle(state.resetAt, resetAt), let sample = state.sample else {
             return nil
         }
         state.sample = nil
@@ -124,7 +124,7 @@ public final class WeeklyQuotaProjectionStore: @unchecked Sendable {
         at date: Date = Date()
     ) throws -> WeeklyQuotaProjection? {
         var states = loadStates()
-        guard var state = states[account], state.resetAt == resetAt, let sample = state.sample else {
+        guard var state = states[account], Self.sameQuotaCycle(state.resetAt, resetAt), let sample = state.sample else {
             return nil
         }
         let usedPercent = sample.remainingPercent - remainingPercent
@@ -159,6 +159,14 @@ public final class WeeklyQuotaProjectionStore: @unchecked Sendable {
 
     public func projections() -> [String: WeeklyQuotaProjection] {
         loadStates().compactMapValues(\.projection)
+    }
+
+    /// 服务端偶尔会让同一重置时间前后相差数秒；五分钟内仍视为同一周期。
+    private static func sameQuotaCycle(_ left: String, _ right: String) -> Bool {
+        if left == right { return true }
+        let formatter = ISO8601DateFormatter()
+        guard let leftDate = formatter.date(from: left), let rightDate = formatter.date(from: right) else { return false }
+        return abs(leftDate.timeIntervalSince(rightDate)) <= 5 * 60
     }
 
     private func loadStates() -> [String: AccountState] {
