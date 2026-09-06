@@ -315,7 +315,8 @@ struct DashboardView: View {
                         refreshAction: { model.refresh(account: account.name) },
                         switchAction: { model.requestSwitch(to: account.name) },
                         aliasAction: { model.beginEditingAlias(account.name) },
-                        removeAction: { model.requestRemove(account.name) }
+                        removeAction: { model.requestRemove(account.name) },
+                        reauthenticateAction: { model.prepareReauthentication(for: account.name) }
                     )
                 }
             }
@@ -671,7 +672,8 @@ struct DashboardView: View {
         VStack(alignment: .leading, spacing: 18) {
             Image(systemName: model.isWaitingForLogin ? "person.crop.circle.badge.clock" : "person.badge.plus")
                 .font(.system(size: 40)).foregroundStyle(accent)
-            Text(model.text(model.isWaitingForLogin ? "等待新账号登录" : "增加 Codex 账号"))
+            Text(model.reauthenticatingAccount.map { model.text("重新登录 %@ 账号", model.displayName(for: $0)) }
+                ?? model.text(model.isWaitingForLogin ? "等待新账号登录" : "增加 Codex 账号"))
                 .font(.title2.bold())
             if model.isWaitingForLogin {
                 Text(model.addAccountStage).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -744,6 +746,7 @@ private struct AccountDashboardRow: View {
     let switchAction: () -> Void
     let aliasAction: () -> Void
     let removeAction: () -> Void
+    let reauthenticateAction: () -> Void
 
     var body: some View {
         Group {
@@ -850,6 +853,9 @@ private struct AccountDashboardRow: View {
                     .padding(.horizontal, 6).padding(.vertical, 2)
                     .background(.red.opacity(0.09), in: Capsule())
                     .help(model.text("不会自动查询；重新登录后可手动刷新恢复。"))
+                Button(model.text("重新登录")) { reauthenticateAction() }
+                    .buttonStyle(.borderless)
+                    .font(.caption2.weight(.semibold))
             }
         }
     }

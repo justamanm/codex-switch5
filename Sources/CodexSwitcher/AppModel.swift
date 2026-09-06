@@ -24,6 +24,7 @@ final class AppModel: ObservableObject {
     @Published var aliases: [String: String] = [:]
     @Published var refreshingAccounts: Set<String> = []
     @Published var showingAddAccount = false
+    @Published var reauthenticatingAccount: String?
     @Published var addAccountStage = ""
     @Published var isWaitingForLogin = false
     @Published var isAddingAccount = false
@@ -50,6 +51,7 @@ final class AppModel: ObservableObject {
     private var automaticTask: Task<Void, Never>?
     private var loginWatchTask: Task<Void, Never>?
     private var loginSession: AccountLoginSession?
+    private var reauthenticationSession: AccountReauthenticationSession?
     private var loginRequiresCLIRestart = false
     private var noticeTask: Task<Void, Never>?
     private var resetRefreshTasks: [String: Task<Void, Never>] = [:]
@@ -125,7 +127,7 @@ final class AppModel: ObservableObject {
 
     func start() {
         detectCodexCLI()
-        let recovery = recoverInterruptedAddition()
+        let recovery = recoverInterruptedLoginOperation()
         loadFromDisk()
         switchHistory = switchHistoryStore.load()
         weeklyQuotaProjections = weeklyQuotaProjectionStore.projections()
@@ -140,6 +142,17 @@ final class AppModel: ObservableObject {
         case .error(let message):
             lastError = message
         }
+    }
+
+    private func recoverInterruptedLoginOperation() -> StartupRecovery {
+        do {
+            if try AccountReauthenticationSession.recoverInterrupted(in: codexDirectory) {
+                return .notice(text("已恢复上次未完成的重新登录"))
+            }
+        } catch {
+            return .error(text("无法恢复上次未完成的重新登录：%@", error.localizedDescription))
+        }
+        return recoverInterruptedAddition()
     }
 
     private func detectCodexCLI() {
@@ -345,6 +358,31 @@ final class AppModel: ObservableObject {
         showingAddAccount = true
     }
 
+    func prepareReauthentication(for account: String) {
+        guard accounts.first(where: { $0.name == account })?.authInvalid == true else { return }
+        guard !isAddingAccount, !isSwitching, !isRefreshing, refreshingAccounts.isEmpty else {
+            showNotice(text("请等待当前操作完成。"))
+            return
+        }
+        guard currentType == "account", !currentName.isEmpty else { return }
+        guard !isDetectingCodexCLI else {
+            showNotice(text("正在检测 Codex CLI，请稍候。"))
+            return
+        }
+        guard clientAvailability.canAddAccount else {
+            lastError = text("重新登录需要先安装 ChatGPT 或 Codex CLI。未修改任何账号文件。")
+            return
+        }
+        guard identities[account] != nil else {
+            lastError = text("无法识别该账号原身份，不能安全替换凭据。")
+            return
+        }
+        lastError = nil
+        reauthenticatingAccount = account
+        addAccountStage = text("准备重新登录 %@", displayName(for: account))
+        showingAddAccount = true
+    }
+
     func startAddAccount() {
         guard !isAddingAccount, !isRefreshing, refreshingAccounts.isEmpty,
               pendingSwitchAccount == nil, currentType == "account", !currentName.isEmpty else { return }
@@ -355,6 +393,7 @@ final class AppModel: ObservableObject {
         }
         let chatGPTURL = chatGPTApplicationURL
         let archivedName = currentName
+        let reauthAccount = reauthenticatingAccount
         isAddingAccount = true
         addAccountUsesChatGPT = chatGPTURL != nil
         loginRequiresCLIRestart = isCodexCLIInstalled
@@ -367,10 +406,20 @@ final class AppModel: ObservableObject {
             do {
                 try await closeChatGPT(at: chatGPTURL)
                 try Task.checkCancellation()
-                loginSession = try AccountLoginSession(directory: codexDirectory, account: archivedName)
+                if let reauthAccount {
+                    reauthenticationSession = try AccountReauthenticationSession(
+                        directory: codexDirectory,
+                        currentAccount: archivedName,
+                        targetAccount: reauthAccount
+                    )
+                } else {
+                    loginSession = try AccountLoginSession(directory: codexDirectory, account: archivedName)
+                }
                 isWaitingForLogin = true
                 if let chatGPTURL {
-                    addAccountStage = text("请在 ChatGPT 中登录新账号。登录数据只保存在本机；本应用不会上传或展示登录凭据。")
+                    addAccountStage = reauthAccount.map {
+                        text("请在 ChatGPT 中重新登录 %@。登录数据只保存在本机；本应用不会上传或展示登录凭据。", displayName(for: $0))
+                    } ?? text("请在 ChatGPT 中登录新账号。登录数据只保存在本机；本应用不会上传或展示登录凭据。")
                     try await NSWorkspace.shared.openApplication(at: chatGPTURL, configuration: NSWorkspace.OpenConfiguration())
                 } else {
                     addAccountStage = text("请打开终端运行 codex login，并在浏览器中完成登录。完成后请返回此处等待识别。")
@@ -388,8 +437,10 @@ final class AppModel: ObservableObject {
     func cancelLoginWatch() {
         guard !isCancellingLogin else { return }
         guard isAddingAccount else {
+            let wasReauthentication = reauthenticatingAccount != nil
             showingAddAccount = false
-            showNotice(text("已取消添加账号"))
+            reauthenticatingAccount = nil
+            showNotice(text(wasReauthentication ? "已取消重新登录" : "已取消添加账号"))
             return
         }
         isCancellingLogin = true
@@ -425,22 +476,31 @@ final class AppModel: ObservableObject {
                 try await closeChatGPT()
                 try session.cancel()
             }
+            if let session = reauthenticationSession {
+                try await closeChatGPT()
+                try session.cancel()
+            }
             loginSession = nil
+            reauthenticationSession = nil
             isAddingAccount = false
             isWaitingForLogin = false
             addAccountUsesChatGPT = false
             showingAddAccount = false
+            let wasReauthentication = reauthenticatingAccount != nil
+            reauthenticatingAccount = nil
             loadFromDisk()
             configureAutomaticRefresh()
             let shouldRestartCLI = loginRequiresCLIRestart
             loginRequiresCLIRestart = false
             if let failure {
                 lastError = shouldRestartCLI
-                    ? text("添加失败，原账号已保留：%@ 请重新打开 Codex CLI。", failure)
-                    : text("添加失败，原账号已保留：%@", failure)
+                    ? text(wasReauthentication ? "重新登录失败，原账号已保留：%@ 请重新打开 Codex CLI。" : "添加失败，原账号已保留：%@ 请重新打开 Codex CLI。", failure)
+                    : text(wasReauthentication ? "重新登录失败，原账号已保留：%@" : "添加失败，原账号已保留：%@", failure)
             } else {
                 lastError = nil
-                showNotice(text(shouldRestartCLI ? "已取消添加账号，请重新打开 Codex CLI" : "已取消添加账号"))
+                showNotice(text(shouldRestartCLI
+                    ? (wasReauthentication ? "已取消重新登录，请重新打开 Codex CLI" : "已取消添加账号，请重新打开 Codex CLI")
+                    : (wasReauthentication ? "已取消重新登录" : "已取消添加账号")))
             }
         } catch {
             // 保留恢复对象和备份，允许用户退出登录应用后再次取消。
@@ -756,7 +816,31 @@ final class AppModel: ObservableObject {
         let authURL = codexDirectory.appendingPathComponent("auth.json")
         while true {
             try Task.checkCancellation()
-            if let identity = identity(from: authURL), let session = loginSession {
+            if let identity = identity(from: authURL), let reauthAccount = reauthenticatingAccount,
+               let session = reauthenticationSession {
+                guard let expected = identities[reauthAccount], identity == expected else {
+                    addAccountStage = text("登录的账号与 %@ 不一致，请退出后重新登录正确账号。", displayName(for: reauthAccount))
+                    try await Task.sleep(for: .seconds(2))
+                    continue
+                }
+                try session.complete()
+                reauthenticationSession = nil
+                reauthenticatingAccount = nil
+                isAddingAccount = false
+                isWaitingForLogin = false
+                addAccountUsesChatGPT = false
+                showingAddAccount = false
+                loadFromDisk()
+                configureAutomaticRefresh()
+                let shouldRestartCLI = loginRequiresCLIRestart
+                loginRequiresCLIRestart = false
+                showNotice(text(
+                    shouldRestartCLI ? "已重新登录 %@，请重新打开 Codex CLI" : "已重新登录 %@",
+                    displayName(for: reauthAccount)
+                ))
+                refresh(account: reauthAccount)
+                return
+            } else if let identity = identity(from: authURL), let session = loginSession {
                 let internalName = availableInternalName(for: identity)
                 // 此处到登记完成没有等待点，取消不会插入到一半。
                 try session.complete(account: internalName)

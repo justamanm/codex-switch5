@@ -115,6 +115,55 @@ func checkLoginCancellation() throws {
 }
 try checkLoginCancellation()
 
+func checkReauthentication() throws {
+    let files = FileManager.default
+    let root = files.temporaryDirectory.appendingPathComponent("reauth-check-\(UUID().uuidString)")
+    try files.createDirectory(at: root, withIntermediateDirectories: true)
+    let active = root.appendingPathComponent("auth.json")
+    let target = root.appendingPathComponent("auth.json.expired")
+    let marker = root.appendingPathComponent(".active-auth-profile")
+    try Data("current".utf8).write(to: active)
+    try Data("expired".utf8).write(to: target)
+    try Data("account current\n".utf8).write(to: marker)
+    let session = try AccountReauthenticationSession(directory: root, currentAccount: "current", targetAccount: "expired")
+    try Data("renewed".utf8).write(to: active)
+    try session.complete()
+    let completedActive = try Data(contentsOf: active)
+    let completedMarker = try Data(contentsOf: marker)
+    precondition(completedActive == Data("renewed".utf8))
+    precondition(!files.fileExists(atPath: target.path))
+    precondition(completedMarker == Data("account expired\n".utf8))
+
+    let cancelled = root.appendingPathComponent("cancelled")
+    try files.createDirectory(at: cancelled, withIntermediateDirectories: true)
+    try Data("current".utf8).write(to: cancelled.appendingPathComponent("auth.json"))
+    try Data("expired".utf8).write(to: cancelled.appendingPathComponent("auth.json.expired"))
+    try Data("account current\n".utf8).write(to: cancelled.appendingPathComponent(".active-auth-profile"))
+    let cancelledSession = try AccountReauthenticationSession(directory: cancelled, currentAccount: "current", targetAccount: "expired")
+    try Data("wrong-login".utf8).write(to: cancelled.appendingPathComponent("auth.json"))
+    try cancelledSession.cancel()
+    let restoredActive = try Data(contentsOf: cancelled.appendingPathComponent("auth.json"))
+    let preservedExpired = try Data(contentsOf: cancelled.appendingPathComponent("auth.json.expired"))
+    precondition(restoredActive == Data("current".utf8))
+    precondition(preservedExpired == Data("expired".utf8))
+
+    let interrupted = root.appendingPathComponent("interrupted")
+    try files.createDirectory(at: interrupted, withIntermediateDirectories: true)
+    try Data("current".utf8).write(to: interrupted.appendingPathComponent("auth.json"))
+    try Data("expired".utf8).write(to: interrupted.appendingPathComponent("auth.json.expired"))
+    try Data("account current\n".utf8).write(to: interrupted.appendingPathComponent(".active-auth-profile"))
+    _ = try AccountReauthenticationSession(directory: interrupted, currentAccount: "current", targetAccount: "expired")
+    try Data("unfinished-login".utf8).write(to: interrupted.appendingPathComponent("auth.json"))
+    let recovered = try AccountReauthenticationSession.recoverInterrupted(in: interrupted)
+    let recoveredActive = try Data(contentsOf: interrupted.appendingPathComponent("auth.json"))
+    let recoveredExpired = try Data(contentsOf: interrupted.appendingPathComponent("auth.json.expired"))
+    precondition(recovered)
+    precondition(recoveredActive == Data("current".utf8))
+    precondition(recoveredExpired == Data("expired".utf8))
+    print("重新登录检查通过：成功替换、取消恢复和中断恢复均保留正确账号。")
+}
+try checkReauthentication()
+
 func checkInterruptedAdditionRecovery() throws {
     func check(_ condition: Bool, _ message: String = "中断恢复结果不符合预期") { precondition(condition, message) }
     let files = FileManager.default
