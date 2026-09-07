@@ -311,31 +311,21 @@ struct DashboardView: View {
             }
             LazyVStack(spacing: 10) {
                 ForEach(manuallyOrderedAccounts) { account in
-                    HStack(spacing: 8) {
-                        Image(systemName: "circle.grid.2x3.fill")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(.tertiary)
-                            .frame(width: 18, height: 32)
-                            .contentShape(Rectangle())
-                            .handCursor()
-                            .draggable(account.name)
-                            .help(model.text("拖动排序"))
-                        AccountDashboardRow(
-                            account: account,
-                            displayName: model.displayName(for: account.name),
-                            identityHelp: model.identityHelp(for: account.name),
-                            isCurrent: model.currentType == "account" && model.currentName == account.name,
-                            isRecommended: model.recommendation?.name == account.name,
-                            usesCompactLayout: usesCompactLayout,
-                            isRefreshing: model.refreshingAccounts.contains(account.name),
-                            isSwitching: model.isSwitching,
-                            refreshAction: { model.refresh(account: account.name) },
-                            switchAction: { model.requestSwitch(to: account.name) },
-                            aliasAction: { model.beginEditingAlias(account.name) },
-                            removeAction: { model.requestRemove(account.name) },
-                            reauthenticateAction: { model.prepareReauthentication(for: account.name) }
-                        )
-                    }
+                    AccountDashboardRow(
+                        account: account,
+                        displayName: model.displayName(for: account.name),
+                        identityHelp: model.identityHelp(for: account.name),
+                        isCurrent: model.currentType == "account" && model.currentName == account.name,
+                        isRecommended: model.recommendation?.name == account.name,
+                        usesCompactLayout: usesCompactLayout,
+                        isRefreshing: model.refreshingAccounts.contains(account.name),
+                        isSwitching: model.isSwitching,
+                        refreshAction: { model.refresh(account: account.name) },
+                        switchAction: { model.requestSwitch(to: account.name) },
+                        aliasAction: { model.beginEditingAlias(account.name) },
+                        removeAction: { model.requestRemove(account.name) },
+                        reauthenticateAction: { model.prepareReauthentication(for: account.name) }
+                    )
                     .dropDestination(for: String.self) { draggedNames, _ in
                         guard let draggedName = draggedNames.first else { return false }
                         moveAccount(draggedName, before: account.name)
@@ -871,7 +861,7 @@ private struct AccountDashboardRow: View {
 
     private var wideLayout: some View {
         GeometryReader { geometry in
-            let identityWidth: CGFloat = account.authInvalid ? 205 : 115
+            let identityWidth: CGFloat = 190
             let quotaAreaWidth = max(350, geometry.size.width - 393 - (identityWidth - 115))
             let extraWidth = max(0, quotaAreaWidth - 350)
             let fiveHourWidth = 175 + extraWidth * 0.6
@@ -947,21 +937,21 @@ private struct AccountDashboardRow: View {
 
     private var accountIdentity: some View {
         HStack(spacing: 6) {
+            Image(systemName: "line.3.horizontal")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(accent)
+                .frame(width: 24, height: 28)
+                .background(accent.opacity(0.10), in: RoundedRectangle(cornerRadius: 6))
+                .contentShape(Rectangle())
+                .handCursor()
+                .draggable(account.name)
+                .help(model.text("拖动排序"))
+                .accessibilityLabel(model.text("拖动排序"))
             HoverAccountName(name: displayName, identityHelp: identityHelp, font: .headline)
                 .foregroundStyle(accountNameColor)
                 .lineLimit(1)
             if account.authInvalid {
-                Text(model.text("登录已失效"))
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.red)
-                    .padding(.horizontal, 6).padding(.vertical, 2)
-                    .background(.red.opacity(0.09), in: Capsule())
-                    .help(model.text("不会自动查询；重新登录后可手动刷新恢复。"))
-                Button(model.text("重新登录")) { reauthenticateAction() }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .font(.caption2.weight(.semibold))
-                    .fixedSize(horizontal: true, vertical: false)
+                InvalidAccountBadge(reauthenticateAction: reauthenticateAction)
             }
         }
     }
@@ -1165,6 +1155,59 @@ private struct HoverAccountName: View {
         dismissTask?.cancel()
         dismissTask = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(180))
+            guard !Task.isCancelled else { return }
+            isPresented = false
+        }
+    }
+}
+
+private struct InvalidAccountBadge: View {
+    @EnvironmentObject private var model: AppModel
+    @State private var isPresented = false
+    @State private var dismissTask: Task<Void, Never>?
+    let reauthenticateAction: () -> Void
+
+    var body: some View {
+        Text(model.text("失效"))
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.red)
+            .padding(.horizontal, 6).padding(.vertical, 2)
+            .background(.red.opacity(0.09), in: Capsule())
+            .fixedSize()
+            .onHover { hovering in
+                hovering ? showPopover() : scheduleDismiss()
+            }
+            .popover(isPresented: $isPresented, arrowEdge: .top) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(model.text("当前账号登录状态已失效，是否重新登录？"))
+                        .font(.callout)
+                    HStack {
+                        Spacer()
+                        Button(model.text("取消")) { isPresented = false }
+                        Button(model.text("重新登录")) {
+                            isPresented = false
+                            reauthenticateAction()
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                }
+                .padding(14)
+                .onHover { hovering in
+                    hovering ? dismissTask?.cancel() : scheduleDismiss()
+                }
+            }
+            .onDisappear { dismissTask?.cancel() }
+    }
+
+    private func showPopover() {
+        dismissTask?.cancel()
+        isPresented = true
+    }
+
+    private func scheduleDismiss() {
+        dismissTask?.cancel()
+        dismissTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(220))
             guard !Task.isCancelled else { return }
             isPresented = false
         }

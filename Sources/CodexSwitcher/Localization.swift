@@ -96,6 +96,8 @@ enum AppLocalization {
         "重新登录失败，原账号已保留：%@": "Sign-in failed; the previous account was preserved: %@",
         "重新登录失败，原账号已保留：%@ 请重新打开 Codex CLI。": "Sign-in failed; the previous account was preserved: %@ Reopen Codex CLI.",
         "不会自动查询；重新登录后可手动刷新恢复。": "Automatic refresh is paused. Sign in again, then refresh manually.",
+        "失效": "Expired",
+        "当前账号登录状态已失效，是否重新登录？": "This account's sign-in has expired. Sign in again?",
         "重新登录后手动查询此账号": "Sign in again, then refresh this account manually",
         "账号操作": "Account actions",
         "拖动排序": "Drag to reorder",
