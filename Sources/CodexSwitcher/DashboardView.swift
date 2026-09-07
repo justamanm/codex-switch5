@@ -1,7 +1,6 @@
 import AppKit
 import CodexSwitcherCore
 import SwiftUI
-import UniformTypeIdentifiers
 
 struct DashboardView: View {
     @EnvironmentObject private var model: AppModel
@@ -9,7 +8,9 @@ struct DashboardView: View {
     @State private var accountsWidth: CGFloat = 0
     @State private var selectedSection = DashboardSection.accounts
     @State private var draggedAccountName: String?
-    @State private var dragDestination: AccountDragDestination?
+    @State private var dragOrderNames: [String]?
+    @State private var dragOffset: CGSize = .zero
+    @State private var dragStartFrame: CGRect?
     @State private var accountRowFrames: [String: CGRect] = [:]
     @AppStorage("tokenUsageSortPeriod") private var tokenUsageSortPeriod = TokenUsageSortPeriod.fiveHours.rawValue
     @AppStorage("accountManualOrder") private var accountManualOrder = ""
@@ -330,11 +331,8 @@ struct DashboardView: View {
                         removeAction: { model.requestRemove(account.name) },
                         reauthenticateAction: { model.prepareReauthentication(for: account.name) },
                         isBeingDragged: draggedAccountName == account.name,
-                        dragPreviewWidth: max(520, accountsWidth - 88),
-                        dragStarted: {
-                            draggedAccountName = account.name
-                            dragDestination = nil
-                        }
+                        dragChanged: { updateAccountDrag(account.name, translation: $0) },
+                        dragEnded: finishAccountDrag
                     )
                     .background {
                         GeometryReader { proxy in
@@ -347,18 +345,8 @@ struct DashboardView: View {
                 }
             }
             .coordinateSpace(name: "account-list")
-            .contentShape(Rectangle())
             .onPreferenceChange(AccountRowFramePreferenceKey.self) { accountRowFrames = $0 }
-            .onDrop(
-                of: [UTType.text],
-                delegate: AccountListDropDelegate(
-                    orderedNames: manuallyOrderedAccounts.map(\.name),
-                    rowFrames: accountRowFrames,
-                    draggedAccountName: $draggedAccountName,
-                    dragDestination: $dragDestination,
-                    moveAction: moveAccount
-                )
-            )
+            .overlay(alignment: .topLeading) { draggingAccountOverlay }
             .animation(.easeInOut(duration: 0.16), value: manuallyOrderedAccounts.map(\.name))
         }
     }
@@ -369,18 +357,64 @@ struct DashboardView: View {
         let storedNames = (try? JSONDecoder().decode([String].self, from: Data(accountManualOrder.utf8))) ?? []
         let names = storedNames.filter { accountsByName[$0] != nil }
             + accounts.map(\.name).filter { !storedNames.contains($0) }
-        return names.compactMap { accountsByName[$0] }
+        let order = dragOrderNames ?? names
+        return order.compactMap { accountsByName[$0] }
     }
 
-    private func moveAccount(_ draggedName: String, to targetName: String, placement: AccountDropPlacement) {
-        guard draggedName != targetName else { return }
-        var names = manuallyOrderedAccounts.map(\.name)
-        guard let source = names.firstIndex(of: draggedName) else { return }
-        names.remove(at: source)
-        guard let target = names.firstIndex(of: targetName) else { return }
-        names.insert(draggedName, at: placement == .before ? target : target + 1)
+    private func updateAccountDrag(_ name: String, translation: CGSize) {
+        guard let sourceFrame = accountRowFrames[name] else { return }
+        if draggedAccountName == nil {
+            draggedAccountName = name
+            dragOrderNames = manuallyOrderedAccounts.map(\.name)
+            dragStartFrame = sourceFrame
+        }
+        guard let dragStartFrame, draggedAccountName == name, var names = dragOrderNames else { return }
+        dragOffset = translation
+        names.removeAll { $0 == name }
+        let centerY = dragStartFrame.midY + translation.height
+        let insertionIndex = names.firstIndex { accountRowFrames[$0]?.midY ?? .greatestFiniteMagnitude > centerY } ?? names.count
+        names.insert(name, at: insertionIndex)
+        withAnimation(.easeInOut(duration: 0.14)) {
+            dragOrderNames = names
+        }
+    }
+
+    private func finishAccountDrag() {
+        guard let names = dragOrderNames else { return }
         guard let data = try? JSONEncoder().encode(names), let value = String(data: data, encoding: .utf8) else { return }
         accountManualOrder = value
+        draggedAccountName = nil
+        dragOrderNames = nil
+        dragOffset = .zero
+        dragStartFrame = nil
+    }
+
+    @ViewBuilder
+    private var draggingAccountOverlay: some View {
+        if let
+            name = draggedAccountName,
+            let account = manuallyOrderedAccounts.first(where: { $0.name == name }),
+            let frame = dragStartFrame
+        {
+            AccountDashboardRow(
+                account: account,
+                displayName: model.displayName(for: account.name),
+                identityHelp: model.identityHelp(for: account.name),
+                isCurrent: model.currentType == "account" && model.currentName == account.name,
+                isRecommended: model.recommendation?.name == account.name,
+                usesCompactLayout: usesCompactLayout,
+                isRefreshing: model.refreshingAccounts.contains(account.name),
+                isSwitching: model.isSwitching,
+                refreshAction: {}, switchAction: {}, aliasAction: {}, removeAction: {}, reauthenticateAction: {},
+                isBeingDragged: false,
+                dragChanged: { _ in }, dragEnded: {}
+            )
+            .frame(width: accountsWidth)
+            .scaleEffect(0.82, anchor: .leading)
+            .offset(x: 0, y: frame.minY + dragOffset.height - 5)
+            .allowsHitTesting(false)
+            .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
+        }
     }
 
     private var usesCompactLayout: Bool {
@@ -865,8 +899,8 @@ private struct AccountDashboardRow: View {
     let removeAction: () -> Void
     let reauthenticateAction: () -> Void
     let isBeingDragged: Bool
-    let dragPreviewWidth: CGFloat
-    let dragStarted: () -> Void
+    let dragChanged: (CGSize) -> Void
+    let dragEnded: () -> Void
 
     var body: some View {
         Group {
@@ -972,12 +1006,11 @@ private struct AccountDashboardRow: View {
                 .background(accent.opacity(0.10), in: RoundedRectangle(cornerRadius: 6))
                 .contentShape(Rectangle())
                 .handCursor()
-                .onDrag {
-                    dragStarted()
-                    return NSItemProvider(object: account.name as NSString)
-                } preview: {
-                    positionedDragPreview
-                }
+                .gesture(
+                    DragGesture(minimumDistance: 3, coordinateSpace: .named("account-list"))
+                        .onChanged { dragChanged($0.translation) }
+                        .onEnded { _ in dragEnded() }
+                )
                 .help(model.text("拖动排序"))
                 .accessibilityLabel(model.text("拖动排序"))
             HoverAccountName(name: displayName, identityHelp: identityHelp, font: .headline)
@@ -987,69 +1020,6 @@ private struct AccountDashboardRow: View {
                 InvalidAccountBadge(reauthenticateAction: reauthenticateAction)
             }
         }
-    }
-
-    private var positionedDragPreview: some View {
-        dragPreview
-            .frame(
-                width: max(scaledDragPreviewWidth, 2 * (scaledDragPreviewWidth - 27)),
-                alignment: .trailing
-            )
-    }
-
-    private var scaledDragPreviewWidth: CGFloat {
-        max(460, dragPreviewWidth * 0.82)
-    }
-
-    private var dragPreview: some View {
-        GeometryReader { geometry in
-            let identityWidth = geometry.size.width * 0.22
-            let quotaWidth = geometry.size.width * 0.28
-            HStack(spacing: 10) {
-                HStack(spacing: 7) {
-                    DragHandle()
-                    Text(displayName).font(.headline).lineLimit(1)
-                    if account.authInvalid {
-                        Text(model.text("失效"))
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.red)
-                    }
-                }
-                .frame(width: identityWidth, alignment: .leading)
-                Divider().padding(.vertical, 8)
-                previewQuota(model.text("5 小时"), value: account.fiveHourRemaining)
-                    .frame(width: quotaWidth)
-                Divider().padding(.vertical, 8)
-                previewQuota(model.text("周额度"), value: account.weeklyRemaining)
-                    .frame(width: quotaWidth)
-                Divider().padding(.vertical, 8)
-                Text(model.text("重置卡 %d 张", account.resetCards))
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-                Text(model.text(isCurrent ? "使用" : "切换"))
-                    .font(.caption.weight(.semibold))
-                    .padding(.horizontal, 10).padding(.vertical, 5)
-                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 6))
-            }
-            .padding(.horizontal, 14)
-        }
-        .foregroundStyle(accountNameColor)
-        .frame(width: scaledDragPreviewWidth, height: 48)
-        .background(rowBackground, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(rowBorder))
-        .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
-    }
-
-    private func previewQuota(_ title: String, value: Int) -> some View {
-        HStack(spacing: 7) {
-            Text(title).foregroundStyle(.secondary)
-            Text("\(value)%").fontWeight(.bold)
-            ProgressView(value: Double(value), total: 100)
-                .tint(value == 0 ? .red : Color(red: 0.12, green: 0.30, blue: 0.18))
-        }
-        .font(.caption)
     }
 
     private var resetCards: some View {
@@ -1324,67 +1294,11 @@ private struct DragHandle: View {
     }
 }
 
-private enum AccountDropPlacement: Equatable {
-    case before
-    case after
-}
-
-private struct AccountDragDestination: Equatable {
-    let targetName: String
-    let placement: AccountDropPlacement
-}
-
 private struct AccountRowFramePreferenceKey: PreferenceKey {
     static let defaultValue: [String: CGRect] = [:]
 
     static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
         value.merge(nextValue(), uniquingKeysWith: { _, newest in newest })
-    }
-}
-
-private struct AccountListDropDelegate: DropDelegate {
-    let orderedNames: [String]
-    let rowFrames: [String: CGRect]
-    @Binding var draggedAccountName: String?
-    @Binding var dragDestination: AccountDragDestination?
-    let moveAction: (String, String, AccountDropPlacement) -> Void
-
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        updateOrder(for: info)
-        return DropProposal(operation: .move)
-    }
-
-    func performDrop(info: DropInfo) -> Bool {
-        updateOrder(for: info)
-        // macOS 的拖动预览会在回调返回后短暂保留；等待其退出后再恢复真实行，避免两条重叠。
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
-            draggedAccountName = nil
-            dragDestination = nil
-        }
-        return true
-    }
-
-    private func updateOrder(for info: DropInfo) {
-        guard let draggedAccountName, let destination = destination(for: info) else { return }
-        guard destination.targetName != draggedAccountName, destination != dragDestination else { return }
-        withAnimation(.easeInOut(duration: 0.16)) {
-            moveAction(draggedAccountName, destination.targetName, destination.placement)
-        }
-        dragDestination = destination
-    }
-
-    private func destination(for info: DropInfo) -> AccountDragDestination? {
-        let rows = orderedNames.compactMap { name -> (String, CGRect)? in
-            rowFrames[name].map { (name, $0) }
-        }.sorted { $0.1.minY < $1.1.minY }
-        guard let first = rows.first, let last = rows.last else { return nil }
-        if info.location.y < first.1.midY {
-            return AccountDragDestination(targetName: first.0, placement: .before)
-        }
-        for row in rows.dropFirst() where info.location.y < row.1.midY {
-            return AccountDragDestination(targetName: row.0, placement: .before)
-        }
-        return AccountDragDestination(targetName: last.0, placement: .after)
     }
 }
 
