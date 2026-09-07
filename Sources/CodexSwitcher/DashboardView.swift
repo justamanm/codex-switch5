@@ -1,12 +1,14 @@
 import AppKit
 import CodexSwitcherCore
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct DashboardView: View {
     @EnvironmentObject private var model: AppModel
     @State private var showingSettings = false
     @State private var accountsWidth: CGFloat = 0
     @State private var selectedSection = DashboardSection.accounts
+    @State private var draggedAccountName: String?
     @AppStorage("tokenUsageSortPeriod") private var tokenUsageSortPeriod = TokenUsageSortPeriod.fiveHours.rawValue
     @AppStorage("accountManualOrder") private var accountManualOrder = ""
     private let accent = Color(red: 0.31, green: 0.57, blue: 0.39)
@@ -324,15 +326,20 @@ struct DashboardView: View {
                         switchAction: { model.requestSwitch(to: account.name) },
                         aliasAction: { model.beginEditingAlias(account.name) },
                         removeAction: { model.requestRemove(account.name) },
-                        reauthenticateAction: { model.prepareReauthentication(for: account.name) }
+                        reauthenticateAction: { model.prepareReauthentication(for: account.name) },
+                        dragStarted: { draggedAccountName = account.name }
                     )
-                    .dropDestination(for: String.self) { draggedNames, _ in
-                        guard let draggedName = draggedNames.first else { return false }
-                        moveAccount(draggedName, before: account.name)
-                        return true
-                    }
+                    .onDrop(
+                        of: [UTType.text],
+                        delegate: AccountRowDropDelegate(
+                            targetName: account.name,
+                            draggedAccountName: $draggedAccountName,
+                            moveAction: moveAccount
+                        )
+                    )
                 }
             }
+            .animation(.easeInOut(duration: 0.16), value: manuallyOrderedAccounts.map(\.name))
         }
     }
 
@@ -346,12 +353,11 @@ struct DashboardView: View {
         return ordered.filter { !$0.authInvalid } + ordered.filter(\.authInvalid)
     }
 
-    private func moveAccount(_ draggedName: String, before targetName: String) {
+    private func moveAccount(_ draggedName: String, to targetName: String) {
         guard draggedName != targetName else { return }
         var names = manuallyOrderedAccounts.map(\.name)
         guard let source = names.firstIndex(of: draggedName), let target = names.firstIndex(of: targetName) else { return }
-        let moved = names.remove(at: source)
-        names.insert(moved, at: source < target ? target - 1 : target)
+        names.move(fromOffsets: IndexSet(integer: source), toOffset: target > source ? target + 1 : target)
         let accountsByName = Dictionary(uniqueKeysWithValues: model.accounts.map { ($0.name, $0) })
         names = names.filter { accountsByName[$0]?.authInvalid == false }
             + names.filter { accountsByName[$0]?.authInvalid == true }
@@ -840,6 +846,7 @@ private struct AccountDashboardRow: View {
     let aliasAction: () -> Void
     let removeAction: () -> Void
     let reauthenticateAction: () -> Void
+    let dragStarted: () -> Void
 
     var body: some View {
         Group {
@@ -937,14 +944,17 @@ private struct AccountDashboardRow: View {
 
     private var accountIdentity: some View {
         HStack(spacing: 6) {
-            Image(systemName: "line.3.horizontal")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(accent)
+            DragHandle()
                 .frame(width: 24, height: 28)
                 .background(accent.opacity(0.10), in: RoundedRectangle(cornerRadius: 6))
                 .contentShape(Rectangle())
                 .handCursor()
-                .draggable(account.name)
+                .onDrag {
+                    dragStarted()
+                    return NSItemProvider(object: account.name as NSString)
+                } preview: {
+                    dragPreview
+                }
                 .help(model.text("拖动排序"))
                 .accessibilityLabel(model.text("拖动排序"))
             HoverAccountName(name: displayName, identityHelp: identityHelp, font: .headline)
@@ -954,6 +964,27 @@ private struct AccountDashboardRow: View {
                 InvalidAccountBadge(reauthenticateAction: reauthenticateAction)
             }
         }
+    }
+
+    private var dragPreview: some View {
+        HStack(spacing: 12) {
+            DragHandle()
+            Text(displayName).font(.headline).lineLimit(1)
+            if account.authInvalid {
+                Text(model.text("失效"))
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.red)
+            }
+            Spacer()
+            Text(model.text("5 小时 %d%% · 周额度 %d%%", account.fiveHourRemaining, account.weeklyRemaining))
+                .font(.callout.weight(.semibold))
+                .foregroundStyle(.secondary)
+        }
+        .foregroundStyle(accountNameColor)
+        .padding(.horizontal, 16)
+        .frame(width: 560, height: 52)
+        .background(rowBackground, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(rowBorder))
     }
 
     private var resetCards: some View {
@@ -1211,6 +1242,42 @@ private struct InvalidAccountBadge: View {
             guard !Task.isCancelled else { return }
             isPresented = false
         }
+    }
+}
+
+private struct DragHandle: View {
+    private let columns = [GridItem(.fixed(3), spacing: 3), GridItem(.fixed(3), spacing: 3)]
+
+    var body: some View {
+        LazyVGrid(columns: columns, spacing: 3) {
+            ForEach(0..<6, id: \.self) { _ in
+                Circle().frame(width: 3, height: 3)
+            }
+        }
+        .foregroundStyle(Color(red: 0.31, green: 0.57, blue: 0.39))
+        .frame(width: 12, height: 18)
+    }
+}
+
+private struct AccountRowDropDelegate: DropDelegate {
+    let targetName: String
+    @Binding var draggedAccountName: String?
+    let moveAction: (String, String) -> Void
+
+    func dropEntered(info: DropInfo) {
+        guard let draggedAccountName, draggedAccountName != targetName else { return }
+        withAnimation(.easeInOut(duration: 0.16)) {
+            moveAction(draggedAccountName, targetName)
+        }
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        draggedAccountName = nil
+        return true
     }
 }
 
