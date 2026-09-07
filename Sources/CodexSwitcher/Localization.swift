@@ -99,6 +99,8 @@ enum AppLocalization {
         "重新登录后手动查询此账号": "Sign in again, then refresh this account manually",
         "账号操作": "Account actions",
         "Token 统计": "Token Usage",
+        "今日总 Token": "Today's Total Tokens",
+        "本周总 Token": "This Week's Total Tokens",
         "排序": "Sort by",
         "仅统计启用此功能后的本机记录": "Local records collected after this feature was enabled",
         "Credit 余额：$%.2f": "Credit balance: $%.2f",

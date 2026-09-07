@@ -10,6 +10,7 @@ struct DashboardView: View {
     @AppStorage("tokenUsageSortPeriod") private var tokenUsageSortPeriod = TokenUsageSortPeriod.fiveHours.rawValue
     private let accent = Color(red: 0.31, green: 0.57, blue: 0.39)
     private let recommendedAccent = Color(red: 0.25, green: 0.48, blue: 0.72)
+    private let compactLayoutBreakpoint: CGFloat = 1100
 
     private enum DashboardSection: String, CaseIterable {
         case accounts
@@ -258,7 +259,7 @@ struct DashboardView: View {
                 .frame(width: 38, height: 38)
                 .background(tint.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
             VStack(alignment: .leading, spacing: 4) {
-                if accountsWidth > 0 && accountsWidth < 900 {
+                if usesCompactLayout {
                     Text(title).font(.callout.weight(.semibold)).foregroundStyle(tint)
                     HoverAccountName(name: name, identityHelp: identityHelp, font: .title3.bold())
                         .foregroundStyle(tint)
@@ -315,7 +316,7 @@ struct DashboardView: View {
                         identityHelp: model.identityHelp(for: account.name),
                         isCurrent: model.currentType == "account" && model.currentName == account.name,
                         isRecommended: model.recommendation?.name == account.name,
-                        usesCompactLayout: accountsWidth > 0 && accountsWidth < 900,
+                        usesCompactLayout: usesCompactLayout,
                         isRefreshing: model.refreshingAccounts.contains(account.name),
                         isSwitching: model.isSwitching,
                         refreshAction: { model.refresh(account: account.name) },
@@ -327,6 +328,10 @@ struct DashboardView: View {
                 }
             }
         }
+    }
+
+    private var usesCompactLayout: Bool {
+        accountsWidth > 0 && accountsWidth < compactLayoutBreakpoint
     }
 
     private var latestUpdate: String? {
@@ -423,6 +428,10 @@ struct DashboardView: View {
             }
             .padding(.horizontal, 44).padding(.vertical, 16)
             Divider()
+            tokenUsageSummary
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+            Divider()
             ScrollView {
                 LazyVStack(spacing: 10) {
                     ForEach(tokenUsageSortedAccounts) { account in
@@ -440,6 +449,43 @@ struct DashboardView: View {
             .padding(.horizontal, 24).padding(.vertical, 12)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var tokenUsageSummary: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 12) {
+                tokenUsageSummaryCard(title: "今日总 Token", totals: model.tokenTotals(period: .today))
+                tokenUsageSummaryCard(title: "本周总 Token", totals: model.tokenTotals(period: .currentWeek))
+            }
+            VStack(spacing: 10) {
+                tokenUsageSummaryCard(title: "今日总 Token", totals: model.tokenTotals(period: .today))
+                tokenUsageSummaryCard(title: "本周总 Token", totals: model.tokenTotals(period: .currentWeek))
+            }
+        }
+    }
+
+    private func tokenUsageSummaryCard(title: String, totals: TokenUsageTotals) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 14) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(model.text(title))
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Text(compactTokens(totals.total))
+                    .font(.title2.bold())
+            }
+            Spacer(minLength: 12)
+            VStack(alignment: .trailing, spacing: 4) {
+                Text(model.text("输入 %@ · 缓存 %@", compactTokens(totals.input), compactTokens(totals.cachedInput)))
+                Text(model.text("输出 %@ · 推理 %@", compactTokens(totals.output), compactTokens(totals.reasoningOutput)))
+                Text(tablePriceText(totals)).foregroundStyle(.secondary)
+            }
+            .font(.caption)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(accent.opacity(0.07), in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(accent.opacity(0.22)))
     }
 
     private var tokenUsageSortedAccounts: [AccountUsage] {
@@ -786,14 +832,15 @@ private struct AccountDashboardRow: View {
 
     private var wideLayout: some View {
         GeometryReader { geometry in
-            let quotaAreaWidth = max(350, geometry.size.width - 393)
+            let identityWidth: CGFloat = account.authInvalid ? 205 : 115
+            let quotaAreaWidth = max(350, geometry.size.width - 393 - (identityWidth - 115))
             let extraWidth = max(0, quotaAreaWidth - 350)
             let fiveHourWidth = 175 + extraWidth * 0.6
             let weeklyWidth = 175 + extraWidth * 0.4
             let sharedBarWidth = max(40, weeklyWidth - 150)
             HStack(spacing: 12) {
                 accountIdentity
-                    .frame(width: 115, alignment: .leading)
+                    .frame(width: identityWidth, alignment: .leading)
                 Divider().frame(height: 28)
                 QuotaBar(
                     title: model.text("5 小时"),
@@ -872,8 +919,10 @@ private struct AccountDashboardRow: View {
                     .background(.red.opacity(0.09), in: Capsule())
                     .help(model.text("不会自动查询；重新登录后可手动刷新恢复。"))
                 Button(model.text("重新登录")) { reauthenticateAction() }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
                     .font(.caption2.weight(.semibold))
+                    .fixedSize(horizontal: true, vertical: false)
             }
         }
     }

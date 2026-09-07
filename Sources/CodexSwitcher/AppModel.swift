@@ -674,6 +674,19 @@ final class AppModel: ObservableObject {
         return tokenTracker.totals(events: tokenEvents, account: account, from: start, to: now)
     }
 
+    func tokenTotals(period: TokenUsagePeriod, now: Date = Date()) -> TokenUsageTotals {
+        accounts.reduce(into: TokenUsageTotals()) { total, account in
+            let accountTotal = tokenTotals(for: account.name, period: period, now: now)
+            total.input += accountTotal.input
+            total.cachedInput += accountTotal.cachedInput
+            total.cacheWriteInput += accountTotal.cacheWriteInput
+            total.output += accountTotal.output
+            total.reasoningOutput += accountTotal.reasoningOutput
+            total.estimatedUSD += accountTotal.estimatedUSD
+            total.unpricedEvents += accountTotal.unpricedEvents
+        }
+    }
+
     func weeklyQuotaPeriodText(for account: String) -> String? {
         guard
             let resetText = accounts.first(where: { $0.name == account })?.weeklyResetAt,
