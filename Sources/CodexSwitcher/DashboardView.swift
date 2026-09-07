@@ -9,7 +9,8 @@ struct DashboardView: View {
     @State private var accountsWidth: CGFloat = 0
     @State private var selectedSection = DashboardSection.accounts
     @State private var draggedAccountName: String?
-    @State private var lastDragTargetName: String?
+    @State private var dragDestination: AccountDragDestination?
+    @State private var accountRowFrames: [String: CGRect] = [:]
     @AppStorage("tokenUsageSortPeriod") private var tokenUsageSortPeriod = TokenUsageSortPeriod.fiveHours.rawValue
     @AppStorage("accountManualOrder") private var accountManualOrder = ""
     private let accent = Color(red: 0.31, green: 0.57, blue: 0.39)
@@ -332,20 +333,32 @@ struct DashboardView: View {
                         dragPreviewWidth: max(520, accountsWidth - 88),
                         dragStarted: {
                             draggedAccountName = account.name
-                            lastDragTargetName = nil
+                            dragDestination = nil
                         }
                     )
-                    .onDrop(
-                        of: [UTType.text],
-                        delegate: AccountRowDropDelegate(
-                            targetName: account.name,
-                            draggedAccountName: $draggedAccountName,
-                            lastDragTargetName: $lastDragTargetName,
-                            moveAction: moveAccount
-                        )
-                    )
+                    .background {
+                        GeometryReader { proxy in
+                            Color.clear.preference(
+                                key: AccountRowFramePreferenceKey.self,
+                                value: [account.name: proxy.frame(in: .named("account-list"))]
+                            )
+                        }
+                    }
                 }
             }
+            .coordinateSpace(name: "account-list")
+            .contentShape(Rectangle())
+            .onPreferenceChange(AccountRowFramePreferenceKey.self) { accountRowFrames = $0 }
+            .onDrop(
+                of: [UTType.text],
+                delegate: AccountListDropDelegate(
+                    orderedNames: manuallyOrderedAccounts.map(\.name),
+                    rowFrames: accountRowFrames,
+                    draggedAccountName: $draggedAccountName,
+                    dragDestination: $dragDestination,
+                    moveAction: moveAccount
+                )
+            )
             .animation(.easeInOut(duration: 0.16), value: manuallyOrderedAccounts.map(\.name))
         }
     }
@@ -359,11 +372,13 @@ struct DashboardView: View {
         return names.compactMap { accountsByName[$0] }
     }
 
-    private func moveAccount(_ draggedName: String, to targetName: String) {
+    private func moveAccount(_ draggedName: String, to targetName: String, placement: AccountDropPlacement) {
         guard draggedName != targetName else { return }
         var names = manuallyOrderedAccounts.map(\.name)
-        guard let source = names.firstIndex(of: draggedName), let target = names.firstIndex(of: targetName) else { return }
-        names.move(fromOffsets: IndexSet(integer: source), toOffset: target > source ? target + 1 : target)
+        guard let source = names.firstIndex(of: draggedName) else { return }
+        names.remove(at: source)
+        guard let target = names.firstIndex(of: targetName) else { return }
+        names.insert(draggedName, at: placement == .before ? target : target + 1)
         guard let data = try? JSONEncoder().encode(names), let value = String(data: data, encoding: .utf8) else { return }
         accountManualOrder = value
     }
@@ -1309,37 +1324,67 @@ private struct DragHandle: View {
     }
 }
 
-private struct AccountRowDropDelegate: DropDelegate {
-    let targetName: String
-    @Binding var draggedAccountName: String?
-    @Binding var lastDragTargetName: String?
-    let moveAction: (String, String) -> Void
+private enum AccountDropPlacement: Equatable {
+    case before
+    case after
+}
 
-    func dropEntered(info: DropInfo) {
-        guard let draggedAccountName else { return }
-        guard draggedAccountName != targetName else { return }
-        withAnimation(.easeInOut(duration: 0.16)) {
-            moveAction(draggedAccountName, targetName)
-        }
-        lastDragTargetName = targetName
+private struct AccountDragDestination: Equatable {
+    let targetName: String
+    let placement: AccountDropPlacement
+}
+
+private struct AccountRowFramePreferenceKey: PreferenceKey {
+    static let defaultValue: [String: CGRect] = [:]
+
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, newest in newest })
     }
+}
+
+private struct AccountListDropDelegate: DropDelegate {
+    let orderedNames: [String]
+    let rowFrames: [String: CGRect]
+    @Binding var draggedAccountName: String?
+    @Binding var dragDestination: AccountDragDestination?
+    let moveAction: (String, String, AccountDropPlacement) -> Void
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
-        DropProposal(operation: .move)
+        updateOrder(for: info)
+        return DropProposal(operation: .move)
     }
 
     func performDrop(info: DropInfo) -> Bool {
-        if let draggedAccountName, lastDragTargetName != targetName {
-            withAnimation(.easeInOut(duration: 0.16)) {
-                moveAction(draggedAccountName, targetName)
-            }
-        }
+        updateOrder(for: info)
         // macOS 会在 performDrop 返回后才移除系统拖动预览；延后恢复真实行，避免短暂重叠成两条。
         DispatchQueue.main.async {
             draggedAccountName = nil
-            lastDragTargetName = nil
+            dragDestination = nil
         }
         return true
+    }
+
+    private func updateOrder(for info: DropInfo) {
+        guard let draggedAccountName, let destination = destination(for: info) else { return }
+        guard destination.targetName != draggedAccountName, destination != dragDestination else { return }
+        withAnimation(.easeInOut(duration: 0.16)) {
+            moveAction(draggedAccountName, destination.targetName, destination.placement)
+        }
+        dragDestination = destination
+    }
+
+    private func destination(for info: DropInfo) -> AccountDragDestination? {
+        let rows = orderedNames.compactMap { name -> (String, CGRect)? in
+            rowFrames[name].map { (name, $0) }
+        }.sorted { $0.1.minY < $1.1.minY }
+        guard let first = rows.first, let last = rows.last else { return nil }
+        if info.location.y < first.1.midY {
+            return AccountDragDestination(targetName: first.0, placement: .before)
+        }
+        for row in rows.dropFirst() where info.location.y < row.1.midY {
+            return AccountDragDestination(targetName: row.0, placement: .before)
+        }
+        return AccountDragDestination(targetName: last.0, placement: .after)
     }
 }
 
