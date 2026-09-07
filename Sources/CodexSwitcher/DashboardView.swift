@@ -1341,7 +1341,10 @@ private struct AccountRowDropDelegate: DropDelegate {
 
     func performDrop(info: DropInfo) -> Bool {
         finishAction()
-        draggedAccountName = nil
+        // macOS 会在 performDrop 返回后才移除系统拖动预览；延后恢复真实行，避免短暂重叠成两条。
+        DispatchQueue.main.async {
+            draggedAccountName = nil
+        }
         return true
     }
 }
