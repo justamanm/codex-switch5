@@ -16,7 +16,7 @@ struct DashboardView: View {
     @AppStorage("accountManualOrder") private var accountManualOrder = ""
     private let accent = Color(red: 0.31, green: 0.57, blue: 0.39)
     private let recommendedAccent = Color(red: 0.25, green: 0.48, blue: 0.72)
-    private let compactLayoutBreakpoint: CGFloat = 1100
+    private let compactLayoutBreakpoint: CGFloat = 1350
 
     private enum DashboardSection: String, CaseIterable {
         case accounts
@@ -911,8 +911,8 @@ private struct AccountDashboardRow: View {
             }
         }
         .opacity(isBeingDragged ? 0 : 1)
-        .padding(.horizontal, usesCompactLayout ? 24 : 15)
-        .padding(.vertical, usesCompactLayout ? 5 : 9)
+        .padding(.horizontal, usesCompactLayout ? 24 : 22)
+        .padding(.vertical, usesCompactLayout ? 5 : 13)
         .frame(maxWidth: .infinity)
         .background(isBeingDragged ? Color.clear : rowBackground, in: RoundedRectangle(cornerRadius: 12))
         .overlay {
@@ -925,16 +925,16 @@ private struct AccountDashboardRow: View {
 
     private var wideLayout: some View {
         GeometryReader { geometry in
-            let identityWidth: CGFloat = 190
-            let quotaAreaWidth = max(350, geometry.size.width - 393 - (identityWidth - 115))
+            let identityWidth: CGFloat = 230
+            let quotaAreaWidth = max(350, geometry.size.width - 602)
             let extraWidth = max(0, quotaAreaWidth - 350)
             let fiveHourWidth = 175 + extraWidth * 0.6
             let weeklyWidth = 175 + extraWidth * 0.4
             let sharedBarWidth = max(40, weeklyWidth - 150)
-            HStack(spacing: 12) {
+            HStack(spacing: 20) {
                 accountIdentity
                     .frame(width: identityWidth, alignment: .leading)
-                Divider().frame(height: 28)
+                Divider().frame(height: 34)
                 QuotaBar(
                     title: model.text("5 小时"),
                     value: account.fiveHourRemaining,
@@ -942,7 +942,7 @@ private struct AccountDashboardRow: View {
                     barWidth: sharedBarWidth
                 )
                     .frame(width: fiveHourWidth)
-                Divider().frame(height: 28)
+                Divider().frame(height: 34)
                 QuotaBar(
                     title: model.text("周额度"),
                     value: account.weeklyRemaining,
@@ -950,18 +950,18 @@ private struct AccountDashboardRow: View {
                     barWidth: sharedBarWidth
                 )
                     .frame(width: weeklyWidth)
-                Divider().frame(height: 28)
+                Divider().frame(height: 34)
                 Text(model.text("重置卡 %d 张", account.resetCards))
                     .font(.callout.weight(.semibold))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                    .frame(width: 68, alignment: .leading)
-                Divider().frame(height: 28)
+                    .frame(width: 88, alignment: .leading)
+                Divider().frame(height: 34)
                 accountActions
-                    .frame(width: 110, alignment: .trailing)
+                    .frame(width: 120, alignment: .trailing)
             }
         }
-        .frame(height: 28)
+        .frame(height: 34)
     }
 
     private var compactLayout: some View {
@@ -1144,7 +1144,7 @@ private struct QuotaBar: View {
     private var color: Color { value == 0 ? .red : accentDark }
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 12) {
             Text(title)
                 .font(.callout.weight(.semibold))
                 .foregroundStyle(.secondary)
@@ -1161,7 +1161,7 @@ private struct QuotaBar: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
-                .frame(minWidth: 0, maxWidth: 88, alignment: .leading)
+                .frame(minWidth: 0, maxWidth: 108, alignment: .leading)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
