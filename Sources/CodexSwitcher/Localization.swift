@@ -98,6 +98,7 @@ enum AppLocalization {
         "不会自动查询；重新登录后可手动刷新恢复。": "Automatic refresh is paused. Sign in again, then refresh manually.",
         "重新登录后手动查询此账号": "Sign in again, then refresh this account manually",
         "账号操作": "Account actions",
+        "拖动排序": "Drag to reorder",
         "Token 统计": "Token Usage",
         "今日总 Token": "Today's Total Tokens",
         "本周总 Token": "This Week's Total Tokens",

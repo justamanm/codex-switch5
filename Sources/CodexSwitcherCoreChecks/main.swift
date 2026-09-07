@@ -38,7 +38,7 @@ let rankedNames = AccountRecommender.ranked(
     now: now,
     calendar: calendar
 ).map(\.name)
-precondition(rankedNames == ["nearest", "later", "current", "invalid", "weeklyZero"], "完整推荐顺序不正确")
+precondition(rankedNames == ["nearest", "later", "current", "weeklyZero", "invalid"], "登录失效账号没有排在底部")
 precondition(accounts.first { $0.name == "invalid" }?.authInvalid == true, "没有解析登录失效状态")
 print("账号数据解析与推荐算法检查通过。")
 

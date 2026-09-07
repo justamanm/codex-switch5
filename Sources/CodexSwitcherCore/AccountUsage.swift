@@ -128,6 +128,7 @@ public enum AccountRecommender {
         now: Date,
         calendar: Calendar
     ) -> Int {
+        if account.authInvalid { return 3 }
         if isSwitchCandidate(account, currentAccount: currentAccount, now: now, calendar: calendar) { return 0 }
         if account.name == currentAccount { return 1 }
         return 2

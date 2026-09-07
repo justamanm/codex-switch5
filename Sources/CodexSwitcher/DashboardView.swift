@@ -8,6 +8,7 @@ struct DashboardView: View {
     @State private var accountsWidth: CGFloat = 0
     @State private var selectedSection = DashboardSection.accounts
     @AppStorage("tokenUsageSortPeriod") private var tokenUsageSortPeriod = TokenUsageSortPeriod.fiveHours.rawValue
+    @AppStorage("accountManualOrder") private var accountManualOrder = ""
     private let accent = Color(red: 0.31, green: 0.57, blue: 0.39)
     private let recommendedAccent = Color(red: 0.25, green: 0.48, blue: 0.72)
     private let compactLayoutBreakpoint: CGFloat = 1100
@@ -309,25 +310,63 @@ struct DashboardView: View {
                 }
             }
             LazyVStack(spacing: 10) {
-                ForEach(model.rankedAccounts) { account in
-                    AccountDashboardRow(
-                        account: account,
-                        displayName: model.displayName(for: account.name),
-                        identityHelp: model.identityHelp(for: account.name),
-                        isCurrent: model.currentType == "account" && model.currentName == account.name,
-                        isRecommended: model.recommendation?.name == account.name,
-                        usesCompactLayout: usesCompactLayout,
-                        isRefreshing: model.refreshingAccounts.contains(account.name),
-                        isSwitching: model.isSwitching,
-                        refreshAction: { model.refresh(account: account.name) },
-                        switchAction: { model.requestSwitch(to: account.name) },
-                        aliasAction: { model.beginEditingAlias(account.name) },
-                        removeAction: { model.requestRemove(account.name) },
-                        reauthenticateAction: { model.prepareReauthentication(for: account.name) }
-                    )
+                ForEach(manuallyOrderedAccounts) { account in
+                    HStack(spacing: 8) {
+                        Image(systemName: "circle.grid.2x3.fill")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.tertiary)
+                            .frame(width: 18, height: 32)
+                            .contentShape(Rectangle())
+                            .handCursor()
+                            .draggable(account.name)
+                            .help(model.text("拖动排序"))
+                        AccountDashboardRow(
+                            account: account,
+                            displayName: model.displayName(for: account.name),
+                            identityHelp: model.identityHelp(for: account.name),
+                            isCurrent: model.currentType == "account" && model.currentName == account.name,
+                            isRecommended: model.recommendation?.name == account.name,
+                            usesCompactLayout: usesCompactLayout,
+                            isRefreshing: model.refreshingAccounts.contains(account.name),
+                            isSwitching: model.isSwitching,
+                            refreshAction: { model.refresh(account: account.name) },
+                            switchAction: { model.requestSwitch(to: account.name) },
+                            aliasAction: { model.beginEditingAlias(account.name) },
+                            removeAction: { model.requestRemove(account.name) },
+                            reauthenticateAction: { model.prepareReauthentication(for: account.name) }
+                        )
+                    }
+                    .dropDestination(for: String.self) { draggedNames, _ in
+                        guard let draggedName = draggedNames.first else { return false }
+                        moveAccount(draggedName, before: account.name)
+                        return true
+                    }
                 }
             }
         }
+    }
+
+    private var manuallyOrderedAccounts: [AccountUsage] {
+        let automatic = model.rankedAccounts
+        let accountsByName = Dictionary(uniqueKeysWithValues: automatic.map { ($0.name, $0) })
+        let storedNames = (try? JSONDecoder().decode([String].self, from: Data(accountManualOrder.utf8))) ?? []
+        let names = storedNames.filter { accountsByName[$0] != nil }
+            + automatic.map(\.name).filter { !storedNames.contains($0) }
+        let ordered = names.compactMap { accountsByName[$0] }
+        return ordered.filter { !$0.authInvalid } + ordered.filter(\.authInvalid)
+    }
+
+    private func moveAccount(_ draggedName: String, before targetName: String) {
+        guard draggedName != targetName else { return }
+        var names = manuallyOrderedAccounts.map(\.name)
+        guard let source = names.firstIndex(of: draggedName), let target = names.firstIndex(of: targetName) else { return }
+        let moved = names.remove(at: source)
+        names.insert(moved, at: source < target ? target - 1 : target)
+        let accountsByName = Dictionary(uniqueKeysWithValues: model.accounts.map { ($0.name, $0) })
+        names = names.filter { accountsByName[$0]?.authInvalid == false }
+            + names.filter { accountsByName[$0]?.authInvalid == true }
+        guard let data = try? JSONEncoder().encode(names), let value = String(data: data, encoding: .utf8) else { return }
+        accountManualOrder = value
     }
 
     private var usesCompactLayout: Bool {
@@ -1172,8 +1211,35 @@ private struct HoverHintModifier: ViewModifier {
     }
 }
 
+private struct HandCursorModifier: ViewModifier {
+    @State private var isHovering = false
+
+    func body(content: Content) -> some View {
+        content
+            .onHover { hovering in
+                if hovering && !isHovering {
+                    NSCursor.openHand.push()
+                    isHovering = true
+                } else if !hovering && isHovering {
+                    NSCursor.pop()
+                    isHovering = false
+                }
+            }
+            .onDisappear {
+                if isHovering {
+                    NSCursor.pop()
+                    isHovering = false
+                }
+            }
+    }
+}
+
 private extension View {
     func hoverHint(_ text: String) -> some View {
         modifier(HoverHintModifier(text: text))
+    }
+
+    func handCursor() -> some View {
+        modifier(HandCursorModifier())
     }
 }
