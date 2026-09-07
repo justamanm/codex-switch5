@@ -969,10 +969,9 @@ private struct AccountDashboardRow: View {
     }
 
     private var compactLayout: some View {
-        HStack(alignment: .top, spacing: 14) {
+        HStack(alignment: .center, spacing: 14) {
             dragControl
                 .frame(width: 14, alignment: .leading)
-                .padding(.top, 7)
             VStack(spacing: 4) {
                 HStack(spacing: 12) {
                     accountIdentity
