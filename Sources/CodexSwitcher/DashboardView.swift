@@ -329,14 +329,17 @@ struct DashboardView: View {
                         reauthenticateAction: { model.prepareReauthentication(for: account.name) },
                         isBeingDragged: draggedAccountName == account.name,
                         dragPreviewWidth: max(520, accountsWidth - 88),
-                        dragStarted: { draggedAccountName = account.name }
+                        dragStarted: {
+                            draggedAccountName = account.name
+                        }
                     )
                     .onDrop(
                         of: [UTType.text],
                         delegate: AccountRowDropDelegate(
                             targetName: account.name,
                             draggedAccountName: $draggedAccountName,
-                            moveAction: moveAccount
+                            moveAction: moveAccount,
+                            finishAction: finishAccountDrag
                         )
                     )
                 }
@@ -352,6 +355,10 @@ struct DashboardView: View {
         let names = storedNames.filter { accountsByName[$0] != nil }
             + automatic.map(\.name).filter { !storedNames.contains($0) }
         let ordered = names.compactMap { accountsByName[$0] }
+        // 拖动中保留临时顺序，让所有账号条能即时腾位；松手时才恢复“失效账号在底部”。
+        if draggedAccountName != nil {
+            return ordered
+        }
         return ordered.filter { !$0.authInvalid } + ordered.filter(\.authInvalid)
     }
 
@@ -360,10 +367,16 @@ struct DashboardView: View {
         var names = manuallyOrderedAccounts.map(\.name)
         guard let source = names.firstIndex(of: draggedName), let target = names.firstIndex(of: targetName) else { return }
         names.move(fromOffsets: IndexSet(integer: source), toOffset: target > source ? target + 1 : target)
-        let accountsByName = Dictionary(uniqueKeysWithValues: model.accounts.map { ($0.name, $0) })
-        names = names.filter { accountsByName[$0]?.authInvalid == false }
-            + names.filter { accountsByName[$0]?.authInvalid == true }
         guard let data = try? JSONEncoder().encode(names), let value = String(data: data, encoding: .utf8) else { return }
+        accountManualOrder = value
+    }
+
+    private func finishAccountDrag() {
+        let accountsByName = Dictionary(uniqueKeysWithValues: model.accounts.map { ($0.name, $0) })
+        let names = manuallyOrderedAccounts.map(\.name)
+        let normalizedNames = names.filter { accountsByName[$0]?.authInvalid == false }
+            + names.filter { accountsByName[$0]?.authInvalid == true }
+        guard let data = try? JSONEncoder().encode(normalizedNames), let value = String(data: data, encoding: .utf8) else { return }
         accountManualOrder = value
     }
 
@@ -1312,9 +1325,11 @@ private struct AccountRowDropDelegate: DropDelegate {
     let targetName: String
     @Binding var draggedAccountName: String?
     let moveAction: (String, String) -> Void
+    let finishAction: () -> Void
 
     func dropEntered(info: DropInfo) {
-        guard let draggedAccountName, draggedAccountName != targetName else { return }
+        guard let draggedAccountName else { return }
+        guard draggedAccountName != targetName else { return }
         withAnimation(.easeInOut(duration: 0.16)) {
             moveAction(draggedAccountName, targetName)
         }
@@ -1325,6 +1340,7 @@ private struct AccountRowDropDelegate: DropDelegate {
     }
 
     func performDrop(info: DropInfo) -> Bool {
+        finishAction()
         draggedAccountName = nil
         return true
     }
