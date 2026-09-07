@@ -327,6 +327,7 @@ struct DashboardView: View {
                         aliasAction: { model.beginEditingAlias(account.name) },
                         removeAction: { model.requestRemove(account.name) },
                         reauthenticateAction: { model.prepareReauthentication(for: account.name) },
+                        dragPreviewWidth: max(520, accountsWidth - 88),
                         dragStarted: { draggedAccountName = account.name }
                     )
                     .onDrop(
@@ -846,6 +847,7 @@ private struct AccountDashboardRow: View {
     let aliasAction: () -> Void
     let removeAction: () -> Void
     let reauthenticateAction: () -> Void
+    let dragPreviewWidth: CGFloat
     let dragStarted: () -> Void
 
     var body: some View {
@@ -954,6 +956,7 @@ private struct AccountDashboardRow: View {
                     return NSItemProvider(object: account.name as NSString)
                 } preview: {
                     dragPreview
+                        .offset(x: dragPreviewWidth / 2 - 27)
                 }
                 .help(model.text("拖动排序"))
                 .accessibilityLabel(model.text("拖动排序"))
@@ -982,7 +985,7 @@ private struct AccountDashboardRow: View {
         }
         .foregroundStyle(accountNameColor)
         .padding(.horizontal, 16)
-        .frame(width: 560, height: 52)
+        .frame(width: dragPreviewWidth, height: 52)
         .background(rowBackground, in: RoundedRectangle(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(rowBorder))
     }
