@@ -9,6 +9,7 @@ struct DashboardView: View {
     @State private var accountsWidth: CGFloat = 0
     @State private var selectedSection = DashboardSection.accounts
     @State private var draggedAccountName: String?
+    @State private var lastDragTargetName: String?
     @AppStorage("tokenUsageSortPeriod") private var tokenUsageSortPeriod = TokenUsageSortPeriod.fiveHours.rawValue
     @AppStorage("accountManualOrder") private var accountManualOrder = ""
     private let accent = Color(red: 0.31, green: 0.57, blue: 0.39)
@@ -331,6 +332,7 @@ struct DashboardView: View {
                         dragPreviewWidth: max(520, accountsWidth - 88),
                         dragStarted: {
                             draggedAccountName = account.name
+                            lastDragTargetName = nil
                         }
                     )
                     .onDrop(
@@ -338,6 +340,7 @@ struct DashboardView: View {
                         delegate: AccountRowDropDelegate(
                             targetName: account.name,
                             draggedAccountName: $draggedAccountName,
+                            lastDragTargetName: $lastDragTargetName,
                             moveAction: moveAccount
                         )
                     )
@@ -1309,6 +1312,7 @@ private struct DragHandle: View {
 private struct AccountRowDropDelegate: DropDelegate {
     let targetName: String
     @Binding var draggedAccountName: String?
+    @Binding var lastDragTargetName: String?
     let moveAction: (String, String) -> Void
 
     func dropEntered(info: DropInfo) {
@@ -1317,6 +1321,7 @@ private struct AccountRowDropDelegate: DropDelegate {
         withAnimation(.easeInOut(duration: 0.16)) {
             moveAction(draggedAccountName, targetName)
         }
+        lastDragTargetName = targetName
     }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
@@ -1324,9 +1329,15 @@ private struct AccountRowDropDelegate: DropDelegate {
     }
 
     func performDrop(info: DropInfo) -> Bool {
+        if let draggedAccountName, lastDragTargetName != targetName {
+            withAnimation(.easeInOut(duration: 0.16)) {
+                moveAction(draggedAccountName, targetName)
+            }
+        }
         // macOS 会在 performDrop 返回后才移除系统拖动预览；延后恢复真实行，避免短暂重叠成两条。
         DispatchQueue.main.async {
             draggedAccountName = nil
+            lastDragTargetName = nil
         }
         return true
     }
