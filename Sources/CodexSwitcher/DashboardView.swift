@@ -351,11 +351,11 @@ struct DashboardView: View {
     }
 
     private var manuallyOrderedAccounts: [AccountUsage] {
-        let automatic = model.rankedAccounts
-        let accountsByName = Dictionary(uniqueKeysWithValues: automatic.map { ($0.name, $0) })
+        let accounts = model.accounts
+        let accountsByName = Dictionary(uniqueKeysWithValues: accounts.map { ($0.name, $0) })
         let storedNames = (try? JSONDecoder().decode([String].self, from: Data(accountManualOrder.utf8))) ?? []
         let names = storedNames.filter { accountsByName[$0] != nil }
-            + automatic.map(\.name).filter { !storedNames.contains($0) }
+            + accounts.map(\.name).filter { !storedNames.contains($0) }
         return names.compactMap { accountsByName[$0] }
     }
 
