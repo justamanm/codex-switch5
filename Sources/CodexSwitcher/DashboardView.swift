@@ -1356,8 +1356,8 @@ private struct AccountListDropDelegate: DropDelegate {
 
     func performDrop(info: DropInfo) -> Bool {
         updateOrder(for: info)
-        // macOS 会在 performDrop 返回后才移除系统拖动预览；延后恢复真实行，避免短暂重叠成两条。
-        DispatchQueue.main.async {
+        // macOS 的拖动预览会在回调返回后短暂保留；等待其退出后再恢复真实行，避免两条重叠。
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
             draggedAccountName = nil
             dragDestination = nil
         }
