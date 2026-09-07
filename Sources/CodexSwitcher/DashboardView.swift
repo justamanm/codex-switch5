@@ -932,8 +932,12 @@ private struct AccountDashboardRow: View {
             let weeklyWidth = 175 + extraWidth * 0.4
             let sharedBarWidth = max(40, weeklyWidth - 150)
             HStack(spacing: 20) {
-                accountIdentity
-                    .frame(width: identityWidth, alignment: .leading)
+                HStack(spacing: 18) {
+                    dragControl
+                        .frame(width: 14, alignment: .leading)
+                    accountIdentity
+                }
+                .frame(width: identityWidth, alignment: .leading)
                 Divider().frame(height: 34)
                 QuotaBar(
                     title: model.text("5 小时"),
@@ -965,54 +969,47 @@ private struct AccountDashboardRow: View {
     }
 
     private var compactLayout: some View {
-        VStack(spacing: 4) {
-            HStack(spacing: 12) {
-                accountIdentity
-                Spacer(minLength: 8)
-                accountActions
-            }
-            Divider().opacity(0.55)
-            GeometryReader { geometry in
-                let quotaAreaWidth = max(0, geometry.size.width - 130)
-                let sharedBarWidth = max(40, min(80, quotaAreaWidth / 2 - 175))
+        HStack(alignment: .top, spacing: 14) {
+            dragControl
+                .frame(width: 14, alignment: .leading)
+                .padding(.top, 7)
+            VStack(spacing: 4) {
                 HStack(spacing: 12) {
-                    QuotaBar(
-                        title: model.text("5 小时"),
-                        value: account.fiveHourRemaining,
-                        reset: account.fiveHourReset,
-                        barWidth: sharedBarWidth
-                    )
-                    .frame(width: quotaAreaWidth / 2 + 24)
-                    Divider().frame(height: 24)
-                    QuotaBar(
-                        title: model.text("周额度"),
-                        value: account.weeklyRemaining,
-                        reset: account.weeklyReset,
-                        barWidth: sharedBarWidth
-                    )
-                    .frame(width: quotaAreaWidth / 2 - 24)
-                    Divider().frame(height: 24)
-                    resetCards
+                    accountIdentity
+                    Spacer(minLength: 8)
+                    accountActions
                 }
+                Divider().opacity(0.55)
+                GeometryReader { geometry in
+                    let quotaAreaWidth = max(0, geometry.size.width - 130)
+                    let sharedBarWidth = max(40, min(80, quotaAreaWidth / 2 - 175))
+                    HStack(spacing: 12) {
+                        QuotaBar(
+                            title: model.text("5 小时"),
+                            value: account.fiveHourRemaining,
+                            reset: account.fiveHourReset,
+                            barWidth: sharedBarWidth
+                        )
+                        .frame(width: quotaAreaWidth / 2 + 24)
+                        Divider().frame(height: 24)
+                        QuotaBar(
+                            title: model.text("周额度"),
+                            value: account.weeklyRemaining,
+                            reset: account.weeklyReset,
+                            barWidth: sharedBarWidth
+                        )
+                        .frame(width: quotaAreaWidth / 2 - 24)
+                        Divider().frame(height: 24)
+                        resetCards
+                    }
+                }
+                .frame(height: 24)
             }
-            .frame(height: 24)
         }
     }
 
     private var accountIdentity: some View {
         HStack(spacing: 6) {
-            DragHandle()
-                .frame(width: 24, height: 28)
-                .background(accent.opacity(0.10), in: RoundedRectangle(cornerRadius: 6))
-                .contentShape(Rectangle())
-                .handCursor()
-                .gesture(
-                    DragGesture(minimumDistance: 3, coordinateSpace: .named("account-list"))
-                        .onChanged { dragChanged($0.translation) }
-                        .onEnded { _ in dragEnded() }
-                )
-                .help(model.text("拖动排序"))
-                .accessibilityLabel(model.text("拖动排序"))
             HoverAccountName(name: displayName, identityHelp: identityHelp, font: .headline)
                 .foregroundStyle(accountNameColor)
                 .lineLimit(1)
@@ -1020,6 +1017,20 @@ private struct AccountDashboardRow: View {
                 InvalidAccountBadge(reauthenticateAction: reauthenticateAction)
             }
         }
+    }
+
+    private var dragControl: some View {
+        DragHandle()
+            .frame(width: 14, height: 20)
+            .contentShape(Rectangle())
+            .handCursor()
+            .gesture(
+                DragGesture(minimumDistance: 3, coordinateSpace: .named("account-list"))
+                    .onChanged { dragChanged($0.translation) }
+                    .onEnded { _ in dragEnded() }
+            )
+            .help(model.text("拖动排序"))
+            .accessibilityLabel(model.text("拖动排序"))
     }
 
     private var resetCards: some View {
@@ -1281,16 +1292,16 @@ private struct InvalidAccountBadge: View {
 }
 
 private struct DragHandle: View {
-    private let columns = [GridItem(.fixed(3), spacing: 3), GridItem(.fixed(3), spacing: 3)]
+    private let columns = [GridItem(.fixed(2), spacing: 2), GridItem(.fixed(2), spacing: 2)]
 
     var body: some View {
-        LazyVGrid(columns: columns, spacing: 3) {
+        LazyVGrid(columns: columns, spacing: 2) {
             ForEach(0..<6, id: \.self) { _ in
-                Circle().frame(width: 3, height: 3)
+                Circle().frame(width: 2, height: 2)
             }
         }
-        .foregroundStyle(Color(red: 0.31, green: 0.57, blue: 0.39))
-        .frame(width: 12, height: 18)
+        .foregroundStyle(Color(red: 0.31, green: 0.57, blue: 0.39).opacity(0.85))
+        .frame(width: 8, height: 14)
     }
 }
 
