@@ -864,11 +864,13 @@ private struct AccountDashboardRow: View {
         .padding(.horizontal, usesCompactLayout ? 24 : 15)
         .padding(.vertical, usesCompactLayout ? 5 : 9)
         .frame(maxWidth: .infinity)
-        .background(rowBackground, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(rowBorder)
-        )
+        .background(isBeingDragged ? Color.clear : rowBackground, in: RoundedRectangle(cornerRadius: 12))
+        .overlay {
+            if !isBeingDragged {
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(rowBorder)
+            }
+        }
     }
 
     private var wideLayout: some View {
