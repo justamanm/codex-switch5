@@ -338,8 +338,7 @@ struct DashboardView: View {
                         delegate: AccountRowDropDelegate(
                             targetName: account.name,
                             draggedAccountName: $draggedAccountName,
-                            moveAction: moveAccount,
-                            finishAction: finishAccountDrag
+                            moveAction: moveAccount
                         )
                     )
                 }
@@ -354,12 +353,7 @@ struct DashboardView: View {
         let storedNames = (try? JSONDecoder().decode([String].self, from: Data(accountManualOrder.utf8))) ?? []
         let names = storedNames.filter { accountsByName[$0] != nil }
             + automatic.map(\.name).filter { !storedNames.contains($0) }
-        let ordered = names.compactMap { accountsByName[$0] }
-        // 拖动中保留临时顺序，让所有账号条能即时腾位；松手时才恢复“失效账号在底部”。
-        if draggedAccountName != nil {
-            return ordered
-        }
-        return ordered.filter { !$0.authInvalid } + ordered.filter(\.authInvalid)
+        return names.compactMap { accountsByName[$0] }
     }
 
     private func moveAccount(_ draggedName: String, to targetName: String) {
@@ -368,15 +362,6 @@ struct DashboardView: View {
         guard let source = names.firstIndex(of: draggedName), let target = names.firstIndex(of: targetName) else { return }
         names.move(fromOffsets: IndexSet(integer: source), toOffset: target > source ? target + 1 : target)
         guard let data = try? JSONEncoder().encode(names), let value = String(data: data, encoding: .utf8) else { return }
-        accountManualOrder = value
-    }
-
-    private func finishAccountDrag() {
-        let accountsByName = Dictionary(uniqueKeysWithValues: model.accounts.map { ($0.name, $0) })
-        let names = manuallyOrderedAccounts.map(\.name)
-        let normalizedNames = names.filter { accountsByName[$0]?.authInvalid == false }
-            + names.filter { accountsByName[$0]?.authInvalid == true }
-        guard let data = try? JSONEncoder().encode(normalizedNames), let value = String(data: data, encoding: .utf8) else { return }
         accountManualOrder = value
     }
 
@@ -1325,7 +1310,6 @@ private struct AccountRowDropDelegate: DropDelegate {
     let targetName: String
     @Binding var draggedAccountName: String?
     let moveAction: (String, String) -> Void
-    let finishAction: () -> Void
 
     func dropEntered(info: DropInfo) {
         guard let draggedAccountName else { return }
@@ -1340,7 +1324,6 @@ private struct AccountRowDropDelegate: DropDelegate {
     }
 
     func performDrop(info: DropInfo) -> Bool {
-        finishAction()
         // macOS 会在 performDrop 返回后才移除系统拖动预览；延后恢复真实行，避免短暂重叠成两条。
         DispatchQueue.main.async {
             draggedAccountName = nil
