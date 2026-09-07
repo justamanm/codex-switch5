@@ -327,6 +327,7 @@ struct DashboardView: View {
                         aliasAction: { model.beginEditingAlias(account.name) },
                         removeAction: { model.requestRemove(account.name) },
                         reauthenticateAction: { model.prepareReauthentication(for: account.name) },
+                        isBeingDragged: draggedAccountName == account.name,
                         dragPreviewWidth: max(520, accountsWidth - 88),
                         dragStarted: { draggedAccountName = account.name }
                     )
@@ -847,6 +848,7 @@ private struct AccountDashboardRow: View {
     let aliasAction: () -> Void
     let removeAction: () -> Void
     let reauthenticateAction: () -> Void
+    let isBeingDragged: Bool
     let dragPreviewWidth: CGFloat
     let dragStarted: () -> Void
 
@@ -858,6 +860,7 @@ private struct AccountDashboardRow: View {
                 wideLayout
             }
         }
+        .opacity(isBeingDragged ? 0 : 1)
         .padding(.horizontal, usesCompactLayout ? 24 : 15)
         .padding(.vertical, usesCompactLayout ? 5 : 9)
         .frame(maxWidth: .infinity)
@@ -955,8 +958,7 @@ private struct AccountDashboardRow: View {
                     dragStarted()
                     return NSItemProvider(object: account.name as NSString)
                 } preview: {
-                    dragPreview
-                        .offset(x: dragPreviewWidth / 2 - 27)
+                    positionedDragPreview
                 }
                 .help(model.text("拖动排序"))
                 .accessibilityLabel(model.text("拖动排序"))
@@ -969,25 +971,67 @@ private struct AccountDashboardRow: View {
         }
     }
 
+    private var positionedDragPreview: some View {
+        dragPreview
+            .frame(
+                width: max(scaledDragPreviewWidth, 2 * (scaledDragPreviewWidth - 27)),
+                alignment: .trailing
+            )
+    }
+
+    private var scaledDragPreviewWidth: CGFloat {
+        max(460, dragPreviewWidth * 0.82)
+    }
+
     private var dragPreview: some View {
-        HStack(spacing: 12) {
-            DragHandle()
-            Text(displayName).font(.headline).lineLimit(1)
-            if account.authInvalid {
-                Text(model.text("失效"))
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.red)
+        GeometryReader { geometry in
+            let identityWidth = geometry.size.width * 0.22
+            let quotaWidth = geometry.size.width * 0.28
+            HStack(spacing: 10) {
+                HStack(spacing: 7) {
+                    DragHandle()
+                    Text(displayName).font(.headline).lineLimit(1)
+                    if account.authInvalid {
+                        Text(model.text("失效"))
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.red)
+                    }
+                }
+                .frame(width: identityWidth, alignment: .leading)
+                Divider().padding(.vertical, 8)
+                previewQuota(model.text("5 小时"), value: account.fiveHourRemaining)
+                    .frame(width: quotaWidth)
+                Divider().padding(.vertical, 8)
+                previewQuota(model.text("周额度"), value: account.weeklyRemaining)
+                    .frame(width: quotaWidth)
+                Divider().padding(.vertical, 8)
+                Text(model.text("重置卡 %d 张", account.resetCards))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                Text(model.text(isCurrent ? "使用" : "切换"))
+                    .font(.caption.weight(.semibold))
+                    .padding(.horizontal, 10).padding(.vertical, 5)
+                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 6))
             }
-            Spacer()
-            Text(model.text("5 小时 %d%% · 周额度 %d%%", account.fiveHourRemaining, account.weeklyRemaining))
-                .font(.callout.weight(.semibold))
-                .foregroundStyle(.secondary)
+            .padding(.horizontal, 14)
         }
         .foregroundStyle(accountNameColor)
-        .padding(.horizontal, 16)
-        .frame(width: dragPreviewWidth, height: 52)
+        .frame(width: scaledDragPreviewWidth, height: 48)
         .background(rowBackground, in: RoundedRectangle(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(rowBorder))
+        .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
+    }
+
+    private func previewQuota(_ title: String, value: Int) -> some View {
+        HStack(spacing: 7) {
+            Text(title).foregroundStyle(.secondary)
+            Text("\(value)%").fontWeight(.bold)
+            ProgressView(value: Double(value), total: 100)
+                .tint(value == 0 ? .red : Color(red: 0.12, green: 0.30, blue: 0.18))
+        }
+        .font(.caption)
     }
 
     private var resetCards: some View {
