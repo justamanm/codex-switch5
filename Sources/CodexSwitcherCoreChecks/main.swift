@@ -1,6 +1,21 @@
 import CodexSwitcherCore
 import Foundation
 
+do {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("codex-switcher-group-check-\(UUID().uuidString)")
+    let store = AccountGroupStore(url: directory.appendingPathComponent("groups.json"))
+    var state = AccountGroupState()
+    let group = try state.createGroup(named: " 工作 ")
+    precondition((try? state.createGroup(named: "工作")) == nil, "重复分组名称没有被拒绝")
+    state.assign(accounts: ["a", "b"], to: group.id)
+    try store.save(state)
+    var loaded = try store.load(validAccounts: ["a"])
+    precondition(loaded.groups.first?.name == "工作", "分组名称没有正确保存")
+    precondition(loaded.accountGroupIDs == ["a": group.id], "无效账号关系没有清理")
+    loaded.deleteGroup(id: group.id)
+    precondition(loaded.accountGroupIDs.isEmpty, "删除分组后账号关系仍然存在")
+}
+
 guard ClientAvailability(hasChatGPT: true, hasCodexCLI: true).accountLoginMethod == .chatGPT,
       ClientAvailability(hasChatGPT: true, hasCodexCLI: false).accountLoginMethod == .chatGPT,
       ClientAvailability(hasChatGPT: false, hasCodexCLI: true).accountLoginMethod == .codexCLI,
@@ -358,3 +373,30 @@ func checkSwitchHistory() throws {
     print("切换记录检查通过：切换、新增和重新登录记录按最新时间排列。")
 }
 try checkSwitchHistory()
+
+func checkAccountCombinedSorting() {
+    func account(_ name: String, five: Int, fiveReset: String, weekly: Int, weeklyResetAt: String?) -> AccountUsage {
+        AccountUsage(
+            name: name, fiveHourRemaining: five, fiveHourReset: fiveReset,
+            weeklyRemaining: weekly, weeklyReset: "", weeklyResetAt: weeklyResetAt,
+            resetCards: 0, notedAt: "2026-09-08T00:00:00Z"
+        )
+    }
+    let accounts = [
+        account("manual-first", five: 20, fiveReset: "09-08 12:00", weekly: 50, weeklyResetAt: "2026-09-15T10:00:00Z"),
+        account("secondary-first", five: 80, fiveReset: "09-08 11:00", weekly: 50, weeklyResetAt: "2026-09-15T10:00:00Z"),
+        account("earlier-week", five: 10, fiveReset: "09-08 10:00", weekly: 10, weeklyResetAt: "2026-09-14T10:00:00Z"),
+        account("missing", five: 100, fiveReset: "--", weekly: 100, weeklyResetAt: nil)
+    ]
+    let rules = [
+        AccountSortRule(field: .weeklyReset, direction: .ascending),
+        AccountSortRule(field: .fiveHourQuota, direction: .descending)
+    ]
+    let names = AccountSorter.sorted(accounts, by: rules).map(\.name)
+    precondition(names == ["earlier-week", "secondary-first", "manual-first", "missing"], "组合排序优先级或缺失时间排序错误")
+    let descending = AccountSorter.sorted(accounts, by: [AccountSortRule(field: .weeklyReset, direction: .descending)]).map(\.name)
+    precondition(descending.last == "missing", "缺失时间在降序时仍应位于最后")
+    precondition(AccountSorter.sorted(accounts, by: []).map(\.name) == accounts.map(\.name), "清空规则后没有恢复手动顺序")
+    print("账号组合排序检查通过：优先级、升降序、缺失时间和手动顺序回退正常。")
+}
+checkAccountCombinedSorting()

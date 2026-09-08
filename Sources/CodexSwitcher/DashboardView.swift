@@ -5,8 +5,11 @@ import SwiftUI
 struct DashboardView: View {
     @EnvironmentObject private var model: AppModel
     @State private var showingSettings = false
+    @State private var showingGroupManager = false
+    @State private var showingSortManager = false
     @State private var accountsWidth: CGFloat = 0
     @State private var selectedSection = DashboardSection.accounts
+    @Namespace private var sectionPickerAnimation
     @State private var draggedAccountName: String?
     @State private var dragOrderNames: [String]?
     @State private var dragOffset: CGSize = .zero
@@ -14,9 +17,12 @@ struct DashboardView: View {
     @State private var accountRowFrames: [String: CGRect] = [:]
     @AppStorage("tokenUsageSortPeriod") private var tokenUsageSortPeriod = TokenUsageSortPeriod.fiveHours.rawValue
     @AppStorage("accountManualOrder") private var accountManualOrder = ""
+    @AppStorage("showsAccountGroups") private var showsAccountGroups = false
+    @AppStorage("accountSortRules") private var accountSortRulesJSON = ""
     private let accent = Color(red: 0.31, green: 0.57, blue: 0.39)
     private let recommendedAccent = Color(red: 0.25, green: 0.48, blue: 0.72)
-    private let compactLayoutBreakpoint: CGFloat = 1350
+    private let compactLayoutBreakpoint: CGFloat = 1000
+    private let pageHorizontalPadding: CGFloat = 28
 
     private enum DashboardSection: String, CaseIterable {
         case accounts
@@ -71,7 +77,7 @@ struct DashboardView: View {
                 }
                 if let error = model.lastError { errorCard(error) }
             }
-            .padding(.horizontal, 28)
+            .padding(.horizontal, pageHorizontalPadding)
             .padding(.top, 18)
             .padding(.bottom, 14)
 
@@ -82,7 +88,7 @@ struct DashboardView: View {
                 case .accounts:
                     ScrollView {
                         accountsSection
-                            .padding(.horizontal, 44)
+                            .padding(.horizontal, pageHorizontalPadding)
                             .padding(.top, 16)
                             .padding(.bottom, 36)
                     }
@@ -126,6 +132,8 @@ struct DashboardView: View {
             addAccountSheet.interactiveDismissDisabled(model.isAddingAccount)
         }
         .sheet(isPresented: $showingSettings) { settingsSheet }
+        .sheet(isPresented: $showingGroupManager) { AccountGroupManagerSheet() }
+        .sheet(isPresented: $showingSortManager) { AccountSortManagerSheet(rules: accountSortRulesBinding) }
         .sheet(
             isPresented: Binding(
                 get: { model.editingAccount != nil },
@@ -135,70 +143,130 @@ struct DashboardView: View {
     }
 
     private var pageHeader: some View {
-        HStack(spacing: 12) {
-            Button { showingSettings = true } label: {
-                Image(systemName: "gearshape.fill")
-                    .font(.system(size: 18, weight: .semibold))
+        ZStack {
+            sectionPicker
+
+            HStack(spacing: 12) {
+                Button { showingSettings = true } label: {
+                    Image(systemName: "gearshape.fill")
+                        .font(.system(size: 18, weight: .semibold))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(accent)
+                .frame(width: 32, height: 32)
+                .contentShape(Rectangle())
+                .help(model.text("打开设置"))
+                HStack(spacing: 7) {
+                    Circle().fill(model.lastError == nil ? .green : .orange).frame(width: 8, height: 8)
+                    Text(model.text("已载入 %d 个账号", model.accounts.count))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                }
+                .font(.callout)
+                Spacer()
+                Button { model.prepareAddAccount() } label: {
+                    Label(model.text("增加账号"), systemImage: "person.badge.plus")
+                        .fixedSize(horizontal: true, vertical: false)
+                }
+                .controlSize(.regular)
+                .disabled(model.isSwitching)
+                Button { model.refresh() } label: {
+                    Label(model.text(model.isRefreshing ? "正在刷新" : "刷新"), systemImage: "arrow.clockwise")
+                        .frame(minWidth: 62)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.regular)
+                .disabled(model.isRefreshing || model.isSwitching)
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(accent)
-            .frame(width: 32, height: 32)
-            .contentShape(Rectangle())
-            .help(model.text("打开设置"))
-            HStack(spacing: 7) {
-                Circle().fill(model.lastError == nil ? .green : .orange).frame(width: 8, height: 8)
-                Text(model.text("已载入 %d 个账号", model.accounts.count)).foregroundStyle(.secondary)
-            }
-            .font(.callout)
-            Spacer()
-            Picker("", selection: $selectedSection) {
-                Label(model.text("账号"), systemImage: "person.2.fill")
-                    .tag(DashboardSection.accounts)
-                Label(model.text("Token 统计"), systemImage: "chart.bar.xaxis")
-                    .tag(DashboardSection.tokenUsage)
-                Label(model.text("切换记录"), systemImage: "clock.arrow.circlepath")
-                    .tag(DashboardSection.switchHistory)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(width: 320)
-            .padding(6)
-            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
-            .overlay {
-                RoundedRectangle(cornerRadius: 10)
-                    .stroke(Color.secondary.opacity(0.12), lineWidth: 1)
-            }
-            .onChange(of: selectedSection) { _, section in
-                if section == .tokenUsage { model.refreshTokenUsage() }
-            }
-            Button { model.prepareAddAccount() } label: {
-                Label(model.text("增加账号"), systemImage: "person.badge.plus")
-                    .fixedSize(horizontal: true, vertical: false)
-            }
-            .controlSize(.large)
-            .disabled(model.isSwitching)
-            Button { model.refresh() } label: {
-                Label(model.text(model.isRefreshing ? "正在刷新" : "刷新"), systemImage: "arrow.clockwise")
-                    .frame(minWidth: 62)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .disabled(model.isRefreshing || model.isSwitching)
         }
     }
 
-    private var accountOverview: some View {
+    private var sectionPicker: some View {
         HStack(spacing: 0) {
-            overviewAccount(
-                title: model.text("当前使用"),
-                name: model.currentName.isEmpty ? model.text("未识别") : model.displayName(for: model.currentName),
-                identityHelp: model.identityHelp(for: model.currentName),
-                account: model.accounts.first { $0.name == model.currentName },
-                systemImage: model.currentType == "hub" ? "network" : "person.crop.circle.fill",
-                tint: accent
-            )
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.leading, 80)
+            sectionPickerButton(.accounts, title: model.text("账号"))
+            sectionPickerButton(.tokenUsage, title: model.text("Token 统计"))
+            sectionPickerButton(.switchHistory, title: model.text("切换记录"))
+        }
+        .padding(3)
+        .frame(width: sectionPickerWidth, height: 36)
+        .background {
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color(nsColor: .controlBackgroundColor))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.secondary.opacity(0.14), lineWidth: 1)
+                }
+        }
+    }
+
+    private func sectionPickerButton(_ section: DashboardSection, title: String) -> some View {
+        Button {
+            guard section != selectedSection else { return }
+            withAnimation(.easeInOut(duration: 0.18)) {
+                selectedSection = section
+            }
+            if section == .tokenUsage {
+                model.refreshTokenUsage()
+            }
+        } label: {
+            ZStack {
+                if selectedSection == section {
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(accent)
+                        .matchedGeometryEffect(id: "section-selection", in: sectionPickerAnimation)
+                }
+                Text(title)
+                    .font(.callout.weight(.medium))
+                    .foregroundStyle(selectedSection == section ? Color.white : .primary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityAddTraits(selectedSection == section ? .isSelected : [])
+    }
+
+    private var sectionPickerWidth: CGFloat {
+        280
+    }
+
+    private var accountOverview: some View {
+        ZStack {
+            HStack(spacing: 0) {
+                overviewAccount(
+                    title: model.text("当前使用"),
+                    name: model.currentName.isEmpty ? model.text("未识别") : model.displayName(for: model.currentName),
+                    identityHelp: model.identityHelp(for: model.currentName),
+                    account: model.accounts.first { $0.name == model.currentName },
+                    systemImage: model.currentType == "hub" ? "network" : "person.crop.circle.fill",
+                    tint: accent
+                )
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(maxWidth: .infinity, alignment: .center)
+
+                Group {
+                    if let account = model.recommendation {
+                        overviewAccount(
+                            title: model.text("下一个账号"),
+                            name: model.displayName(for: account.name),
+                            identityHelp: model.identityHelp(for: account.name),
+                            account: account,
+                            systemImage: "leaf.fill",
+                            tint: recommendedAccent
+                        )
+                    } else {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(model.text("下一个账号")).font(.callout.weight(.semibold)).foregroundStyle(recommendedAccent)
+                            Text(model.text("暂无可用账号")).font(.title3.bold())
+                            Text(model.text("请刷新额度后重试")).font(.callout).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(maxWidth: .infinity, alignment: .center)
+            }
 
             if let account = model.recommendation {
                 VStack(spacing: 3) {
@@ -207,41 +275,16 @@ struct DashboardView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
-                    .fixedSize(horizontal: true, vertical: false)
                     .disabled(model.isSwitching)
 
                     Image(systemName: "arrow.right")
                         .font(.system(size: 18, weight: .bold))
                         .foregroundStyle(accent)
                 }
-                .frame(width: 76)
-                .layoutPriority(2)
             } else {
                 Image(systemName: "arrow.right")
                     .font(.system(size: 18, weight: .bold))
                     .foregroundStyle(accent)
-                    .frame(width: 76)
-            }
-
-            if let account = model.recommendation {
-                overviewAccount(
-                    title: model.text("下一个账号"),
-                    name: model.displayName(for: account.name),
-                    identityHelp: model.identityHelp(for: account.name),
-                    account: account,
-                    systemImage: "leaf.fill",
-                    tint: recommendedAccent
-                )
-                .frame(maxWidth: .infinity, alignment: .trailing)
-                .padding(.trailing, 32)
-            } else {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(model.text("下一个账号")).font(.callout.weight(.semibold)).foregroundStyle(recommendedAccent)
-                    Text(model.text("暂无可用账号")).font(.title3.bold())
-                    Text(model.text("请刷新额度后重试")).font(.callout).foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, alignment: .trailing)
-                .padding(.trailing, 32)
             }
         }
         .padding(.horizontal, 18)
@@ -308,6 +351,18 @@ struct DashboardView: View {
                 Text(model.text("所有账号")).font(.title3.bold())
                 Text(model.text("%d 个", model.accounts.count)).font(.callout).foregroundStyle(.secondary)
                 Spacer()
+                Button { showingSortManager = true } label: {
+                    Label(
+                        accountSortRules.isEmpty ? model.text("排序") : model.text("排序 %d", accountSortRules.count),
+                        systemImage: "arrow.up.arrow.down"
+                    )
+                }
+                .controlSize(.small)
+                Toggle(model.text("按分组显示"), isOn: $showsAccountGroups)
+                    .toggleStyle(.checkbox)
+                    .font(.callout)
+                Button(model.text("管理分组")) { showingGroupManager = true }
+                    .controlSize(.small)
                 if let latestUpdate {
                     Label(model.text("额度更新于 %@", latestUpdate), systemImage: "clock")
                         .font(.callout)
@@ -315,7 +370,33 @@ struct DashboardView: View {
                 }
             }
             LazyVStack(spacing: 10) {
-                ForEach(manuallyOrderedAccounts) { account in
+                if showsAccountGroups {
+                    ForEach(groupedAccountSections, id: \.id) { section in
+                        if !section.accounts.isEmpty {
+                            HStack {
+                                Text(section.name).font(.headline)
+                                Text(model.text("%d 个", section.accounts.count))
+                                    .font(.caption).foregroundStyle(.secondary)
+                                Spacer()
+                            }
+                            .padding(.top, 4)
+                            accountRows(section.accounts)
+                        }
+                    }
+                } else {
+                    accountRows(sortedAccounts)
+                }
+            }
+            .coordinateSpace(name: "account-list")
+            .onPreferenceChange(AccountRowFramePreferenceKey.self) { accountRowFrames = $0 }
+            .overlay(alignment: .topLeading) { draggingAccountOverlay }
+            .animation(.easeInOut(duration: 0.16), value: manuallyOrderedAccounts.map(\.name))
+        }
+    }
+
+    @ViewBuilder
+    private func accountRows(_ accounts: [AccountUsage]) -> some View {
+        ForEach(accounts) { account in
                     AccountDashboardRow(
                         account: account,
                         displayName: model.displayName(for: account.name),
@@ -330,6 +411,7 @@ struct DashboardView: View {
                         aliasAction: { model.beginEditingAlias(account.name) },
                         removeAction: { model.requestRemove(account.name) },
                         reauthenticateAction: { model.prepareReauthentication(for: account.name) },
+                        allowsDragging: accountSortRules.isEmpty,
                         isBeingDragged: draggedAccountName == account.name,
                         dragChanged: { updateAccountDrag(account.name, translation: $0) },
                         dragEnded: finishAccountDrag
@@ -342,13 +424,30 @@ struct DashboardView: View {
                             )
                         }
                     }
-                }
-            }
-            .coordinateSpace(name: "account-list")
-            .onPreferenceChange(AccountRowFramePreferenceKey.self) { accountRowFrames = $0 }
-            .overlay(alignment: .topLeading) { draggingAccountOverlay }
-            .animation(.easeInOut(duration: 0.16), value: manuallyOrderedAccounts.map(\.name))
         }
+    }
+
+    private struct AccountGroupSection: Identifiable {
+        let id: String
+        let name: String
+        let accounts: [AccountUsage]
+    }
+
+    private var groupedAccountSections: [AccountGroupSection] {
+        let ordered = sortedAccounts
+        var sections = model.accountGroupState.groups.map { group in
+            AccountGroupSection(
+                id: group.id.uuidString,
+                name: group.name,
+                accounts: ordered.filter { model.groupID(for: $0.name) == group.id }
+            )
+        }
+        sections.append(AccountGroupSection(
+            id: "ungrouped",
+            name: model.text("未分组"),
+            accounts: ordered.filter { model.groupID(for: $0.name) == nil }
+        ))
+        return sections
     }
 
     private var manuallyOrderedAccounts: [AccountUsage] {
@@ -361,7 +460,23 @@ struct DashboardView: View {
         return order.compactMap { accountsByName[$0] }
     }
 
+    private var sortedAccounts: [AccountUsage] {
+        AccountSorter.sorted(manuallyOrderedAccounts, by: accountSortRules)
+    }
+
+    private var accountSortRules: [AccountSortRule] {
+        (try? JSONDecoder().decode([AccountSortRule].self, from: Data(accountSortRulesJSON.utf8))) ?? []
+    }
+
+    private var accountSortRulesBinding: Binding<[AccountSortRule]> {
+        Binding(get: { accountSortRules }, set: { rules in
+            guard let data = try? JSONEncoder().encode(rules) else { return }
+            accountSortRulesJSON = String(decoding: data, as: UTF8.self)
+        })
+    }
+
     private func updateAccountDrag(_ name: String, translation: CGSize) {
+        guard accountSortRules.isEmpty else { return }
         guard let sourceFrame = accountRowFrames[name] else { return }
         if draggedAccountName == nil {
             draggedAccountName = name
@@ -406,6 +521,7 @@ struct DashboardView: View {
                 isRefreshing: model.refreshingAccounts.contains(account.name),
                 isSwitching: model.isSwitching,
                 refreshAction: {}, switchAction: {}, aliasAction: {}, removeAction: {}, reauthenticateAction: {},
+                allowsDragging: false,
                 isBeingDragged: false,
                 dragChanged: { _ in }, dragEnded: {}
             )
@@ -513,19 +629,20 @@ struct DashboardView: View {
                     .frame(width: 165)
                 }
             }
-            .padding(.horizontal, 44).padding(.vertical, 16)
-            Divider()
-            tokenUsageSummary
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
+            .padding(.horizontal, pageHorizontalPadding).padding(.vertical, 16)
             Divider()
             ScrollView {
                 LazyVStack(spacing: 10) {
+                    tokenUsageSummary
+                        .padding(.bottom, 2)
+                    Divider()
+                        .padding(.vertical, 2)
                     ForEach(tokenUsageSortedAccounts) { account in
                         tokenUsageAccountRow(account)
                     }
                 }
-                .padding(16)
+                .padding(.horizontal, pageHorizontalPadding)
+                .padding(.vertical, 16)
             }
             Divider()
             HStack {
@@ -533,7 +650,7 @@ struct DashboardView: View {
                     .font(.caption).foregroundStyle(.secondary)
                 Spacer()
             }
-            .padding(.horizontal, 24).padding(.vertical, 12)
+            .padding(.horizontal, pageHorizontalPadding).padding(.vertical, 12)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -587,29 +704,27 @@ struct DashboardView: View {
     private func tokenUsageAccountRow(_ account: AccountUsage) -> some View {
         let isCurrent = model.currentType == "account" && model.currentName == account.name
         return HStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 7) {
-                HStack(spacing: 7) {
-                    Text(model.displayName(for: account.name))
-                        .font(.headline)
-                        .lineLimit(1)
+            VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 4) {
                     if isCurrent {
                         Text(model.text("当前使用"))
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(accent)
                     }
+                    Text(model.displayName(for: account.name))
+                        .font(.headline)
+                        .lineLimit(1)
                 }
                 .foregroundStyle(isCurrent ? accent : Color.primary)
-                Text(account.creditBalance.map { model.text("Credit 余额：$%.2f", $0) } ?? model.text("Credit 余额：未启用"))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
-            .frame(width: 155, alignment: .leading)
+            .frame(width: tokenUsageColumnWidth(0.14), alignment: .leading)
 
             Divider().padding(.vertical, 4)
 
             tokenUsagePeriod(
                 title: "5h",
-                totals: model.tokenTotals(for: account.name, period: .fiveHours)
+                totals: model.tokenTotals(for: account.name, period: .fiveHours),
+                width: tokenUsageColumnWidth(0.21)
             )
             Divider().padding(.vertical, 4)
             tokenUsagePeriod(
@@ -617,17 +732,20 @@ struct DashboardView: View {
                 subtitle: model.weeklyQuotaPeriodText(for: account.name) ?? model.text("暂无精确重置时间"),
                 totals: model.tokenTotals(for: account.name, period: .weeklyQuotaCycle),
                 unavailable: model.weeklyQuotaPeriodText(for: account.name) == nil,
-                projection: model.weeklyQuotaProjections[account.name]
+                projection: model.weeklyQuotaProjections[account.name],
+                width: tokenUsageColumnWidth(0.23)
             )
             Divider().padding(.vertical, 4)
             tokenUsagePeriod(
                 title: "今天",
-                totals: model.tokenTotals(for: account.name, period: .today)
+                totals: model.tokenTotals(for: account.name, period: .today),
+                width: tokenUsageColumnWidth(0.21)
             )
             Divider().padding(.vertical, 4)
             tokenUsagePeriod(
                 title: "本周",
-                totals: model.tokenTotals(for: account.name, period: .currentWeek)
+                totals: model.tokenTotals(for: account.name, period: .currentWeek),
+                width: tokenUsageColumnWidth(0.21)
             )
         }
         .padding(.horizontal, 14)
@@ -647,13 +765,19 @@ struct DashboardView: View {
         subtitle: String? = nil,
         totals: TokenUsageTotals,
         unavailable: Bool = false,
-        projection: WeeklyQuotaProjection? = nil
+        projection: WeeklyQuotaProjection? = nil,
+        width: CGFloat
     ) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(alignment: .firstTextBaseline) {
-                Text(model.text(title)).font(.callout.weight(.semibold))
+                Text(model.text(title)).font(.callout.weight(.semibold)).lineLimit(1)
                 Spacer()
-                if !unavailable { Text(compactTokens(totals.total)).font(.headline) }
+                if !unavailable {
+                    Text(compactTokens(totals.total))
+                        .font(.headline)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                }
             }
             if let subtitle {
                 Text(subtitle).foregroundStyle(.secondary).lineLimit(2)
@@ -664,11 +788,13 @@ struct DashboardView: View {
                 Text(tablePriceText(totals)).foregroundStyle(.secondary)
                 if let projection {
                     Text(model.text(
-                        projection.isPartial ? "周额度预测 $%.2f*（依据 %d%% 用量）" : "周额度预测 $%.2f（依据 %d%% 用量）",
+                        projection.isPartial ? "预测 $%.2f* · %d%%用量" : "预测 $%.2f · %d%%用量",
                         projection.estimatedFullUSD,
                         projection.observedUsedPercent
                     ))
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
                 } else if title == "周额度周期" {
                     Text(model.text("周额度预测：暂无数据"))
                         .foregroundStyle(.secondary)
@@ -677,7 +803,11 @@ struct DashboardView: View {
         }
         .font(.caption)
         .padding(.horizontal, 12)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(width: width, alignment: .leading)
+    }
+
+    private func tokenUsageColumnWidth(_ fraction: CGFloat) -> CGFloat {
+        max(0, accountsWidth - pageHorizontalPadding * 2 - 32) * fraction
     }
 
     private func tablePriceText(_ totals: TokenUsageTotals) -> String {
@@ -694,7 +824,7 @@ struct DashboardView: View {
                 Text(model.text("仅保存在本机，最多保留 500 条"))
                     .font(.caption).foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 44).padding(.vertical, 16)
+            .padding(.horizontal, pageHorizontalPadding).padding(.vertical, 16)
             Divider()
             if model.switchHistory.isEmpty {
                 ContentUnavailableView(
@@ -724,6 +854,14 @@ struct DashboardView: View {
                             .font(.callout.weight(.medium))
                     }
                     .padding(.vertical, 5)
+                    .listRowInsets(
+                        EdgeInsets(
+                            top: 0,
+                            leading: pageHorizontalPadding,
+                            bottom: 0,
+                            trailing: pageHorizontalPadding
+                        )
+                    )
                 }
             }
         }
@@ -848,6 +986,14 @@ struct DashboardView: View {
                     }
                 }
                 .font(.callout)
+                if model.reauthenticatingAccount == nil {
+                    Picker(model.text("加入分组"), selection: $model.pendingAddAccountGroupID) {
+                        Text(model.text("未分组")).tag(UUID?.none)
+                        ForEach(model.accountGroupState.groups) { group in
+                            Text(group.name).tag(Optional(group.id))
+                        }
+                    }
+                }
             }
             HStack {
                 Spacer()
@@ -880,6 +1026,240 @@ struct DashboardView: View {
     }
 }
 
+private struct AccountSortManagerSheet: View {
+    @EnvironmentObject private var model: AppModel
+    @Environment(\.dismiss) private var dismiss
+    @Binding var rules: [AccountSortRule]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text(model.text("组合排序")).font(.title2.bold())
+                Spacer()
+                Button(model.text("完成")) { dismiss() }.keyboardShortcut(.defaultAction)
+            }
+            Text(model.text("从上到下依次比较；时间未知的账号始终排在最后。"))
+                .font(.callout).foregroundStyle(.secondary)
+            if rules.isEmpty {
+                ContentUnavailableView(model.text("使用手动排序"), systemImage: "arrow.up.arrow.down")
+                    .frame(maxWidth: .infinity, minHeight: 120)
+            } else {
+                VStack(spacing: 8) {
+                    ForEach(rules.indices, id: \.self) { index in
+                        HStack(spacing: 10) {
+                            Text("\(index + 1)").foregroundStyle(.secondary).frame(width: 18)
+                            Picker("", selection: fieldBinding(index)) {
+                                ForEach(availableFields(for: index), id: \.self) { field in
+                                    Text(fieldTitle(field)).tag(field)
+                                }
+                            }
+                            .labelsHidden().frame(width: 190)
+                            Picker("", selection: directionBinding(index)) {
+                                Text(model.text("升序")).tag(AccountSortDirection.ascending)
+                                Text(model.text("降序")).tag(AccountSortDirection.descending)
+                            }
+                            .labelsHidden().frame(width: 100)
+                            Button { move(index, by: -1) } label: { Image(systemName: "arrow.up") }
+                                .disabled(index == 0)
+                            Button { move(index, by: 1) } label: { Image(systemName: "arrow.down") }
+                                .disabled(index == rules.count - 1)
+                            Button(role: .destructive) { rules.remove(at: index) } label: { Image(systemName: "trash") }
+                        }
+                    }
+                }
+            }
+            Divider()
+            HStack {
+                Button { addRule() } label: { Label(model.text("添加排序条件"), systemImage: "plus") }
+                    .disabled(rules.count == AccountSortField.allCases.count)
+                Spacer()
+                Button(model.text("恢复手动排序"), role: .destructive) { rules.removeAll() }
+                    .disabled(rules.isEmpty)
+            }
+        }
+        .padding(22)
+        .frame(width: 560)
+    }
+
+    private func fieldBinding(_ index: Int) -> Binding<AccountSortField> {
+        Binding(get: { rules[index].field }, set: { rules[index].field = $0 })
+    }
+
+    private func directionBinding(_ index: Int) -> Binding<AccountSortDirection> {
+        Binding(get: { rules[index].direction }, set: { rules[index].direction = $0 })
+    }
+
+    private func availableFields(for index: Int) -> [AccountSortField] {
+        let used = Set(rules.enumerated().filter { $0.offset != index }.map { $0.element.field })
+        return AccountSortField.allCases.filter { !used.contains($0) }
+    }
+
+    private func addRule() {
+        guard let field = AccountSortField.allCases.first(where: { candidate in !rules.contains { $0.field == candidate } }) else { return }
+        rules.append(AccountSortRule(field: field))
+    }
+
+    private func move(_ index: Int, by offset: Int) {
+        let destination = index + offset
+        guard rules.indices.contains(destination) else { return }
+        rules.swapAt(index, destination)
+    }
+
+    private func fieldTitle(_ field: AccountSortField) -> String {
+        switch field {
+        case .weeklyReset: model.text("周重置时间")
+        case .weeklyQuota: model.text("周额度")
+        case .fiveHourReset: model.text("5h重置时间")
+        case .fiveHourQuota: model.text("5h额度")
+        }
+    }
+}
+
+private struct AccountGroupManagerSheet: View {
+    @EnvironmentObject private var model: AppModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var newGroupName = ""
+    @State private var selectedGroupID: UUID?
+    @State private var editedGroupName = ""
+    @State private var selectedAccounts: Set<String> = []
+    @State private var groupToDelete: AccountGroup?
+    @State private var batchResult: String?
+    @State private var batchResultTask: Task<Void, Never>?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text(model.text("管理分组")).font(.title2.bold())
+                Spacer()
+                Button(model.text("完成")) { dismiss() }
+            }
+
+            HStack {
+                TextField(model.text("新分组名称"), text: $newGroupName)
+                    .textFieldStyle(.roundedBorder)
+                Button(model.text("创建分组")) {
+                    if let id = model.createAccountGroup(name: newGroupName) {
+                        newGroupName = ""
+                        selectGroup(id)
+                    }
+                }
+                .disabled(newGroupName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+
+            Divider()
+
+            HStack(spacing: 12) {
+                Picker(model.text("目标分组"), selection: $selectedGroupID) {
+                    Text(model.text("未分组")).tag(UUID?.none)
+                    ForEach(model.accountGroupState.groups) { group in
+                        Text(group.name).tag(Optional(group.id))
+                    }
+                }
+                .onChange(of: selectedGroupID) { _, value in loadSelection(value) }
+
+                if let selectedGroupID,
+                   let group = model.accountGroupState.groups.first(where: { $0.id == selectedGroupID }) {
+                    TextField(model.text("分组名称"), text: $editedGroupName)
+                        .textFieldStyle(.roundedBorder)
+                    Button(model.text("更新名称")) {
+                        model.renameAccountGroup(id: selectedGroupID, name: editedGroupName)
+                    }
+                    Button(model.text("删除分组"), role: .destructive) { groupToDelete = group }
+                }
+            }
+
+            if let error = model.accountGroupError {
+                Text(error).font(.callout).foregroundStyle(.red)
+            }
+
+            Text(model.text("选择要移动到此分组的账号")).font(.headline)
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(model.accounts) { account in
+                        Toggle(isOn: Binding(
+                            get: { selectedAccounts.contains(account.name) },
+                            set: { checked in
+                                if checked { selectedAccounts.insert(account.name) }
+                                else { selectedAccounts.remove(account.name) }
+                            }
+                        )) {
+                            Text(model.displayName(for: account.name)).lineLimit(1)
+                        }
+                        .toggleStyle(.checkbox)
+                        .padding(.vertical, 7)
+                        Divider()
+                    }
+                }
+            }
+            .frame(minHeight: 220)
+
+            HStack {
+                Button(model.text("全选")) { selectedAccounts = Set(model.accounts.map(\.name)) }
+                Button(model.text("清空")) { selectedAccounts.removeAll() }
+                Spacer()
+                if let batchResult {
+                    Label(batchResult, systemImage: "checkmark.circle.fill")
+                        .font(.callout)
+                        .foregroundStyle(.green)
+                        .transition(.opacity)
+                }
+                Button(model.text("批量应用")) {
+                    if model.replaceAccounts(in: selectedGroupID, with: selectedAccounts) {
+                        showBatchResult(model.text("已应用到 %d 个账号", selectedAccounts.count))
+                        loadSelection(selectedGroupID, clearsResult: false)
+                    } else {
+                        batchResult = nil
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(selectedAccounts.isEmpty)
+            }
+        }
+        .padding(24)
+        .frame(width: 650, height: 540)
+        .onAppear { selectGroup(model.accountGroupState.groups.first?.id) }
+        .onDisappear { batchResultTask?.cancel() }
+        .alert(
+            model.text("删除分组"),
+            isPresented: Binding(get: { groupToDelete != nil }, set: { if !$0 { groupToDelete = nil } })
+        ) {
+            Button(model.text("删除"), role: .destructive) {
+                guard let group = groupToDelete else { return }
+                model.deleteAccountGroup(id: group.id)
+                groupToDelete = nil
+                selectGroup(model.accountGroupState.groups.first?.id)
+            }
+            Button(model.text("取消"), role: .cancel) { groupToDelete = nil }
+        } message: {
+            Text(model.text("删除分组后，组内账号将变为未分组，账号不会被删除。"))
+        }
+    }
+
+    private func selectGroup(_ id: UUID?) {
+        selectedGroupID = id
+        loadSelection(id)
+    }
+
+    private func loadSelection(_ id: UUID?, clearsResult: Bool = true) {
+        if clearsResult {
+            batchResultTask?.cancel()
+            batchResult = nil
+        }
+        editedGroupName = model.accountGroupState.groups.first(where: { $0.id == id })?.name ?? ""
+        selectedAccounts = Set(model.accounts.filter { model.groupID(for: $0.name) == id }.map(\.name))
+    }
+
+    private func showBatchResult(_ message: String) {
+        batchResultTask?.cancel()
+        withAnimation(.easeInOut(duration: 0.15)) { batchResult = message }
+        batchResultTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeInOut(duration: 0.15)) { batchResult = nil }
+        }
+    }
+}
+
 private struct AccountDashboardRow: View {
     @EnvironmentObject private var model: AppModel
     @State private var showingActions = false
@@ -898,6 +1278,7 @@ private struct AccountDashboardRow: View {
     let aliasAction: () -> Void
     let removeAction: () -> Void
     let reauthenticateAction: () -> Void
+    let allowsDragging: Bool
     let isBeingDragged: Bool
     let dragChanged: (CGSize) -> Void
     let dragEnded: () -> Void
@@ -912,7 +1293,7 @@ private struct AccountDashboardRow: View {
         }
         .opacity(isBeingDragged ? 0 : 1)
         .padding(.horizontal, usesCompactLayout ? 24 : 22)
-        .padding(.vertical, usesCompactLayout ? 5 : 13)
+        .padding(.vertical, usesCompactLayout ? 5 : 8)
         .frame(maxWidth: .infinity)
         .background(isBeingDragged ? Color.clear : rowBackground, in: RoundedRectangle(cornerRadius: 12))
         .overlay {
@@ -925,12 +1306,11 @@ private struct AccountDashboardRow: View {
 
     private var wideLayout: some View {
         GeometryReader { geometry in
-            let identityWidth: CGFloat = 230
-            let quotaAreaWidth = max(350, geometry.size.width - 602)
+            let identityWidth: CGFloat = 160
+            let quotaAreaWidth = max(350, geometry.size.width - 394)
             let extraWidth = max(0, quotaAreaWidth - 350)
             let fiveHourWidth = 175 + extraWidth * 0.6
             let weeklyWidth = 175 + extraWidth * 0.4
-            let sharedBarWidth = max(40, weeklyWidth - 150)
             HStack(spacing: 20) {
                 HStack(spacing: 18) {
                     dragControl
@@ -940,27 +1320,18 @@ private struct AccountDashboardRow: View {
                 .frame(width: identityWidth, alignment: .leading)
                 Divider().frame(height: 34)
                 QuotaBar(
-                    title: model.text("5 小时"),
+                    title: model.text("5h"),
                     value: account.fiveHourRemaining,
-                    reset: account.fiveHourReset,
-                    barWidth: sharedBarWidth
+                    reset: account.fiveHourReset
                 )
                     .frame(width: fiveHourWidth)
                 Divider().frame(height: 34)
                 QuotaBar(
-                    title: model.text("周额度"),
+                    title: model.text("周"),
                     value: account.weeklyRemaining,
-                    reset: account.weeklyReset,
-                    barWidth: sharedBarWidth
+                    reset: account.weeklyReset
                 )
                     .frame(width: weeklyWidth)
-                Divider().frame(height: 34)
-                Text(model.text("重置卡 %d 张", account.resetCards))
-                    .font(.callout.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .frame(width: 88, alignment: .leading)
-                Divider().frame(height: 34)
                 accountActions
                     .frame(width: 120, alignment: .trailing)
             }
@@ -980,26 +1351,24 @@ private struct AccountDashboardRow: View {
                 }
                 Divider().opacity(0.55)
                 GeometryReader { geometry in
-                    let quotaAreaWidth = max(0, geometry.size.width - 130)
-                    let sharedBarWidth = max(40, min(80, quotaAreaWidth / 2 - 175))
+                    let quotaWidth = max(0, (geometry.size.width - 25) / 2)
+                    let sharedBarWidth = max(40, min(80, quotaWidth - 175))
                     HStack(spacing: 12) {
                         QuotaBar(
-                            title: model.text("5 小时"),
+                            title: model.text("5h"),
                             value: account.fiveHourRemaining,
                             reset: account.fiveHourReset,
                             barWidth: sharedBarWidth
                         )
-                        .frame(width: quotaAreaWidth / 2 + 24)
+                        .frame(width: quotaWidth)
                         Divider().frame(height: 24)
                         QuotaBar(
-                            title: model.text("周额度"),
+                            title: model.text("周"),
                             value: account.weeklyRemaining,
                             reset: account.weeklyReset,
                             barWidth: sharedBarWidth
                         )
-                        .frame(width: quotaAreaWidth / 2 - 24)
-                        Divider().frame(height: 24)
-                        resetCards
+                        .frame(width: quotaWidth)
                     }
                 }
                 .frame(height: 24)
@@ -1012,10 +1381,14 @@ private struct AccountDashboardRow: View {
             HoverAccountName(name: displayName, identityHelp: identityHelp, font: .headline)
                 .foregroundStyle(accountNameColor)
                 .lineLimit(1)
+                .truncationMode(.tail)
+                .layoutPriority(0)
             if account.authInvalid {
                 InvalidAccountBadge(reauthenticateAction: reauthenticateAction)
+                    .layoutPriority(1)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var dragControl: some View {
@@ -1023,26 +1396,29 @@ private struct AccountDashboardRow: View {
             .frame(width: 14, height: 20)
             .contentShape(Rectangle())
             .handCursor()
+            .allowsHitTesting(allowsDragging)
+            .opacity(allowsDragging ? 1 : 0.28)
             .gesture(
                 DragGesture(minimumDistance: 3, coordinateSpace: .named("account-list"))
                     .onChanged { dragChanged($0.translation) }
                     .onEnded { _ in dragEnded() }
             )
-            .help(model.text("拖动排序"))
+            .help(model.text(allowsDragging ? "拖动排序" : "清空排序条件后可拖动"))
             .accessibilityLabel(model.text("拖动排序"))
-    }
-
-    private var resetCards: some View {
-            Text(model.text("重置卡 %d 张", account.resetCards))
-            .font(.callout.weight(.semibold))
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
-            .frame(width: 80, alignment: .leading)
     }
 
     private var accountActions: some View {
         HStack(spacing: 6) {
             HStack(spacing: 0) {
+                if account.resetCards > 0 {
+                    Image(systemName: "creditcard.fill")
+                        .font(.system(size: 14, weight: .medium))
+                        .frame(width: 23, height: 26)
+                        .foregroundStyle(accent)
+                        .hoverHint(model.text("重置卡 %d 张", account.resetCards))
+                        .accessibilityLabel(model.text("重置卡 %d 张", account.resetCards))
+                }
+
                 Button { refreshAction() } label: {
                     ZStack {
                         if isRefreshing {
@@ -1149,16 +1525,19 @@ private struct QuotaBar: View {
     let value: Int
     let reset: String
     var barWidth: CGFloat? = nil
+    var showsTitle = true
 
     private let accentDark = Color(red: 0.12, green: 0.30, blue: 0.18)
     private var color: Color { value == 0 ? .red : accentDark }
 
     var body: some View {
-        HStack(spacing: 12) {
-            Text(title)
-                .font(.callout.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .frame(width: 40, alignment: .leading)
+        HStack(spacing: 8) {
+            if showsTitle {
+                Text(title)
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 22, alignment: .leading)
+            }
             Text("\(value)%")
                 .font(.callout.bold())
                 .foregroundStyle(color)
@@ -1171,7 +1550,8 @@ private struct QuotaBar: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
-                .frame(minWidth: 0, maxWidth: 108, alignment: .leading)
+                .fixedSize(horizontal: true, vertical: false)
+                .layoutPriority(1)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -1247,8 +1627,14 @@ private struct InvalidAccountBadge: View {
         Text(model.text("失效"))
             .font(.caption2.weight(.semibold))
             .foregroundStyle(.red)
-            .padding(.horizontal, 6).padding(.vertical, 2)
-            .background(.red.opacity(0.09), in: Capsule())
+            .padding(.horizontal, 7).padding(.vertical, 3)
+            .background(.red.opacity(0.11), in: Capsule())
+            .overlay {
+                Capsule()
+                    .stroke(.red.opacity(0.3), lineWidth: 1)
+            }
+            .contentShape(Capsule())
+            .handCursor()
             .fixedSize()
             .onHover { hovering in
                 hovering ? showPopover() : scheduleDismiss()

@@ -33,6 +33,9 @@ final class AppModel: ObservableObject {
     @Published var editingAccount: String?
     @Published var editingAlias = ""
     @Published var removingAccount: String?
+    @Published var accountGroupState = AccountGroupState()
+    @Published var pendingAddAccountGroupID: UUID?
+    @Published var accountGroupError: String?
     @Published private(set) var tokenEvents: [TokenUsageEvent] = []
     @Published private(set) var weeklyQuotaProjections: [String: WeeklyQuotaProjection] = [:]
     @Published private(set) var switchHistory: [SwitchHistoryRecord] = []
@@ -65,6 +68,9 @@ final class AppModel: ObservableObject {
     )
     private lazy var weeklyQuotaProjectionStore = WeeklyQuotaProjectionStore(
         url: codexDirectory.appendingPathComponent("codex_switcher_weekly_quota_projection.json")
+    )
+    private lazy var accountGroupStore = AccountGroupStore(
+        url: codexDirectory.appendingPathComponent("codex_switcher_account_groups.json")
     )
 
     private enum StartupRecovery {
@@ -129,6 +135,7 @@ final class AppModel: ObservableObject {
         detectCodexCLI()
         let recovery = recoverInterruptedLoginOperation()
         loadFromDisk()
+        loadAccountGroups()
         switchHistory = switchHistoryStore.load()
         weeklyQuotaProjections = weeklyQuotaProjectionStore.projections()
         refreshTokenUsage()
@@ -354,6 +361,7 @@ final class AppModel: ObservableObject {
             return
         }
         lastError = nil
+        pendingAddAccountGroupID = nil
         addAccountStage = text("准备添加新账号")
         showingAddAccount = true
     }
@@ -440,6 +448,7 @@ final class AppModel: ObservableObject {
             let wasReauthentication = reauthenticatingAccount != nil
             showingAddAccount = false
             reauthenticatingAccount = nil
+            if !wasReauthentication { pendingAddAccountGroupID = nil }
             showNotice(text(wasReauthentication ? "已取消重新登录" : "已取消添加账号"))
             return
         }
@@ -488,6 +497,7 @@ final class AppModel: ObservableObject {
             showingAddAccount = false
             let wasReauthentication = reauthenticatingAccount != nil
             reauthenticatingAccount = nil
+            if !wasReauthentication { pendingAddAccountGroupID = nil }
             loadFromDisk()
             configureAutomaticRefresh()
             let shouldRestartCLI = loginRequiresCLIRestart
@@ -537,6 +547,7 @@ final class AppModel: ObservableObject {
             try FileManager.default.trashItem(at: credential, resultingItemURL: &trashedURL)
             aliases.removeValue(forKey: account)
             saveAliases()
+            updateAccountGroups { $0.assign(accounts: [account], to: nil) }
             removingAccount = nil
             loadFromDisk()
             status = text("已将 %@ 的凭据移到废纸篓", account)
@@ -858,6 +869,7 @@ final class AppModel: ObservableObject {
             } else if let identity = identity(from: authURL), let session = loginSession {
                 let internalName = availableInternalName(for: identity)
                 let previousAccount = currentName
+                let selectedGroupID = pendingAddAccountGroupID
                 // 此处到登记完成没有等待点，取消不会插入到一半。
                 try session.complete(account: internalName)
                 loginSession = nil
@@ -866,6 +878,8 @@ final class AppModel: ObservableObject {
                 addAccountUsesChatGPT = false
                 showingAddAccount = false
                 loadFromDisk()
+                updateAccountGroups { $0.assign(accounts: [internalName], to: selectedGroupID) }
+                pendingAddAccountGroupID = nil
                 recordAccountOperation(action: .addAccount, from: previousAccount, to: internalName)
                 configureAutomaticRefresh()
                 let shouldRestartCLI = loginRequiresCLIRestart
@@ -940,6 +954,67 @@ final class AppModel: ObservableObject {
         guard let data = try? JSONEncoder().encode(aliases) else { return }
         try? data.write(to: url, options: .atomic)
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+    }
+
+    func groupID(for account: String) -> UUID? { accountGroupState.accountGroupIDs[account] }
+
+    @discardableResult
+    func createAccountGroup(name: String) -> UUID? {
+        var createdID: UUID?
+        updateAccountGroups { createdID = try $0.createGroup(named: name).id }
+        return createdID
+    }
+
+    func renameAccountGroup(id: UUID, name: String) {
+        updateAccountGroups { try $0.renameGroup(id: id, to: name) }
+    }
+
+    func deleteAccountGroup(id: UUID) {
+        updateAccountGroups { $0.deleteGroup(id: id) }
+    }
+
+    func assignAccounts(_ accounts: Set<String>, to groupID: UUID?) {
+        updateAccountGroups { $0.assign(accounts: accounts, to: groupID) }
+    }
+
+    @discardableResult
+    func replaceAccounts(in groupID: UUID?, with accounts: Set<String>) -> Bool {
+        updateAccountGroups { state in
+            if let groupID {
+                let removedAccounts = Set(state.accountGroupIDs.compactMap { account, assignedGroupID in
+                    assignedGroupID == groupID && !accounts.contains(account) ? account : nil
+                })
+                state.assign(accounts: removedAccounts, to: nil)
+                state.assign(accounts: accounts, to: groupID)
+            } else {
+                state.assign(accounts: accounts, to: nil)
+            }
+        }
+    }
+
+    private func loadAccountGroups() {
+        do {
+            accountGroupState = try accountGroupStore.load(validAccounts: Set(accounts.map(\.name)))
+            accountGroupError = nil
+        } catch {
+            accountGroupState = AccountGroupState()
+            accountGroupError = text("无法读取账号分组：%@", error.localizedDescription)
+        }
+    }
+
+    @discardableResult
+    private func updateAccountGroups(_ change: (inout AccountGroupState) throws -> Void) -> Bool {
+        let previous = accountGroupState
+        do {
+            try change(&accountGroupState)
+            try accountGroupStore.save(accountGroupState)
+            accountGroupError = nil
+            return true
+        } catch {
+            accountGroupState = previous
+            accountGroupError = error.localizedDescription
+            return false
+        }
     }
 
     private func migrateLegacyAutomaticAliasesIfNeeded() {

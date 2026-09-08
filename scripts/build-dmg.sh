@@ -2,10 +2,10 @@
 set -euo pipefail
 
 root_dir="${0:A:h:h}"
-app_path="$root_dir/dist/Codex Switcher.app"
+app_path="$root_dir/dist/Codex Switcher5.app"
 output_path="$root_dir/dist/Codex-Switcher.dmg"
 staging_root="$(mktemp -d /private/tmp/codex-switcher-dmg.XXXXXX)"
-volume_root="$staging_root/Codex Switcher"
+volume_root="$staging_root/Codex Switcher5"
 temporary_dmg="$staging_root/Codex-Switcher.dmg"
 
 cleanup() {
@@ -23,11 +23,11 @@ test -x "$app_path/Contents/MacOS/CodexSwitcher"
 test -f "$app_path/Contents/Resources/AppIcon.icns"
 
 mkdir -p "$volume_root"
-ditto "$app_path" "$volume_root/Codex Switcher.app"
+ditto "$app_path" "$volume_root/Codex Switcher5.app"
 ln -s /Applications "$volume_root/Applications"
 
 hdiutil create \
-    -volname "Codex Switcher" \
+    -volname "Codex Switcher5" \
     -srcfolder "$volume_root" \
     -format UDZO \
     -ov \

@@ -4,10 +4,10 @@ set -euo pipefail
 export CLANG_MODULE_CACHE_PATH="${CLANG_MODULE_CACHE_PATH:-/private/tmp/codex-switcher-module-cache}"
 
 root_dir="${0:A:h:h}"
-app_dir="$root_dir/dist/Codex Switcher.app"
+app_dir="$root_dir/dist/Codex Switcher5.app"
 mkdir -p "$root_dir/dist"
 staging_root="$(mktemp -d "$root_dir/dist/.codex-switcher-build.XXXXXX")"
-staging_app="$staging_root/Codex Switcher.app"
+staging_app="$staging_root/Codex Switcher5.app"
 
 cd "$root_dir"
 sips -z 16 16 "$root_dir/support/AppIcon.png" --out "$root_dir/support/AppIcon.iconset/icon_16x16.png" >/dev/null
@@ -35,7 +35,7 @@ install -m 644 "$root_dir/support/AppIcon.png" "$staging_app/Contents/Resources/
 codesign --force --deep --sign - "$staging_app"
 if [[ -d "$app_dir" ]]; then
     old_root="$(mktemp -d /private/tmp/codex-switcher-previous.XXXXXX)"
-    mv "$app_dir" "$old_root/Codex Switcher.previous-bundle"
+    mv "$app_dir" "$old_root/Codex Switcher5.previous-bundle"
 fi
 mv "$staging_app" "$app_dir"
 rmdir "$staging_root"

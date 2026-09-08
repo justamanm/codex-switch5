@@ -13,7 +13,7 @@ struct ContentView: View {
             Section {
                 currentCard
             }
-            Section("账号") {
+            Section(model.text("账号")) {
                 ForEach(model.accounts) { account in
                     AccountRow(
                         account: account,
@@ -24,21 +24,21 @@ struct ContentView: View {
                 }
             }
         }
-        .navigationTitle("Codex Switcher")
+        .navigationTitle("Codex Switcher5")
         .listStyle(.sidebar)
         .frame(minWidth: 280)
     }
 
     private var currentCard: some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text("当前使用").font(.caption).foregroundStyle(.secondary)
+            Text(model.text("当前使用")).font(.caption).foregroundStyle(.secondary)
             HStack {
                 Image(systemName: model.currentType == "hub" ? "network" : "person.crop.circle.fill")
                     .foregroundStyle(.tint)
-                Text(model.currentName.isEmpty ? "未识别" : model.currentName)
+                Text(model.currentName.isEmpty ? model.text("未识别") : model.currentName)
                     .font(.headline)
                 Spacer()
-                Text(model.currentType == "hub" ? "中转站" : "账号")
+                Text(model.text(model.currentType == "hub" ? "中转站" : "账号"))
                     .font(.caption2.weight(.semibold))
                     .padding(.horizontal, 7).padding(.vertical, 3)
                     .background(.quaternary, in: Capsule())
@@ -66,9 +66,9 @@ struct ContentView: View {
             }
         } else {
             ContentUnavailableView(
-                "暂无账号数据",
+                model.text("暂无账号数据"),
                 systemImage: "person.crop.circle.badge.questionmark",
-                description: Text("点击“立即刷新”读取账号限额。")
+                description: Text(model.text("点击“立即刷新”读取账号限额。"))
             )
         }
     }
@@ -79,20 +79,20 @@ struct ContentView: View {
                 HStack(spacing: 9) {
                     Text(account.name).font(.system(size: 30, weight: .bold, design: .rounded))
                     if model.recommendation?.name == account.name {
-                        Label("推荐", systemImage: "sparkles")
+                        Label(model.text("推荐"), systemImage: "sparkles")
                             .font(.caption.weight(.semibold)).foregroundStyle(.green)
                             .padding(.horizontal, 9).padding(.vertical, 5)
                             .background(.green.opacity(0.1), in: Capsule())
                     }
                 }
-                Text("最近更新：\(formattedTimestamp(account.notedAt))")
+                Text(model.text("最近更新：%@", formattedTimestamp(account.notedAt)))
                     .font(.callout).foregroundStyle(.secondary)
             }
             Spacer()
             Button {
                 model.requestSwitch(to: account.name)
             } label: {
-                Label(model.recommendation?.name == account.name ? "切换到推荐账号" : "切换账号", systemImage: "arrow.left.arrow.right")
+                Label(model.text(model.recommendation?.name == account.name ? "切换到推荐账号" : "切换账号"), systemImage: "arrow.left.arrow.right")
                     .padding(.horizontal, 6)
             }
             .buttonStyle(.borderedProminent)
@@ -103,13 +103,13 @@ struct ContentView: View {
 
     private func quotaGrid(_ account: AccountUsage) -> some View {
         HStack(spacing: 16) {
-            QuotaCard(title: "5 小时额度", value: account.fiveHourRemaining, reset: account.fiveHourReset, icon: "clock")
-            QuotaCard(title: "周额度", value: account.weeklyRemaining, reset: account.weeklyReset, icon: "calendar")
+            QuotaCard(title: model.text("5 小时额度"), value: account.fiveHourRemaining, reset: account.fiveHourReset, icon: "clock")
+            QuotaCard(title: model.text("周额度"), value: account.weeklyRemaining, reset: account.weeklyReset, icon: "calendar")
             VStack(alignment: .leading, spacing: 12) {
-                Label("重置卡", systemImage: "arrow.counterclockwise.circle")
+                Label(model.text("重置卡"), systemImage: "arrow.counterclockwise.circle")
                     .font(.headline).foregroundStyle(.secondary)
                 Text("\(account.resetCards)").font(.system(size: 42, weight: .bold, design: .rounded))
-                Text(account.resetCards > 0 ? "需要时可使用" : "当前没有可用重置卡")
+                Text(model.text(account.resetCards > 0 ? "需要时可使用" : "当前没有可用重置卡"))
                     .font(.caption).foregroundStyle(.secondary)
             }
             .padding(18).frame(maxWidth: .infinity, minHeight: 160, alignment: .leading)
@@ -120,23 +120,23 @@ struct ContentView: View {
 
     private var settings: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("自动查询").font(.headline)
-            Toggle("启用自动刷新", isOn: $model.automaticRefresh)
+            Text(model.text("自动查询")).font(.headline)
+            Toggle(model.text("启用自动刷新"), isOn: $model.automaticRefresh)
                 .onChange(of: model.automaticRefresh) { _, _ in model.configureAutomaticRefresh() }
             HStack {
-                Text("刷新间隔")
+                Text(model.text("刷新间隔"))
                 Spacer()
-                TextField("间隔", value: $model.refreshIntervalValue, format: .number)
+                TextField(model.text("间隔"), value: $model.refreshIntervalValue, format: .number)
                     .frame(width: 70)
-                Picker("时间单位", selection: $model.refreshIntervalUnit) {
-                    Text("秒").tag("seconds")
-                    Text("分钟").tag("minutes")
+                Picker(model.text("时间单位"), selection: $model.refreshIntervalUnit) {
+                    Text(model.text("秒")).tag("seconds")
+                    Text(model.text("分钟")).tag("minutes")
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden().frame(width: 120)
                 .onChange(of: model.refreshIntervalUnit) { _, _ in model.configureAutomaticRefresh() }
             }
-            Text("自动查询默认每 1 分钟执行；可自定义秒或分钟。全量查询时账号之间间隔 1 秒。")
+            Text(model.text("自动查询默认每 1 分钟执行；可自定义秒或分钟。全量查询时账号之间间隔 1 秒。"))
                 .font(.caption).foregroundStyle(.secondary)
         }
         .padding(18).background(.background, in: RoundedRectangle(cornerRadius: 16))
@@ -161,6 +161,7 @@ struct ContentView: View {
 }
 
 private struct AccountRow: View {
+    @EnvironmentObject private var model: AppModel
     let account: AccountUsage
     let isCurrent: Bool
     let isRecommended: Bool
@@ -169,7 +170,7 @@ private struct AccountRow: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(account.name).font(.headline)
-                if isCurrent { Circle().fill(.green).frame(width: 7, height: 7).help("当前账号") }
+                if isCurrent { Circle().fill(.green).frame(width: 7, height: 7).help(model.text("当前账号")) }
                 Spacer()
                 if isRecommended { Image(systemName: "sparkles").foregroundStyle(.green) }
             }
@@ -184,6 +185,7 @@ private struct AccountRow: View {
 }
 
 private struct QuotaCard: View {
+    @EnvironmentObject private var model: AppModel
     let title: String
     let value: Int
     let reset: String
@@ -201,7 +203,7 @@ private struct QuotaCard: View {
                 Text("%").font(.title3).foregroundStyle(.secondary)
             }
             ProgressView(value: Double(value), total: 100).tint(color)
-            Text("重置：\(reset)").font(.caption).foregroundStyle(.secondary)
+            Text(model.text("重置：%@", reset)).font(.caption).foregroundStyle(.secondary)
         }
         .padding(18).frame(maxWidth: .infinity, minHeight: 160, alignment: .leading)
         .background(.background, in: RoundedRectangle(cornerRadius: 16))
