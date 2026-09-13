@@ -2,7 +2,7 @@
 
 ## 目标
 
-为 Codex Switcher 提供可下载、可拖入“应用程序”目录安装的 DMG，并在每次代码推送到 `main` 后，由 GitHub 自动构建和更新固定的 `latest` Release。
+为 Codex Switch5 提供可下载、可拖入“应用程序”目录安装的 DMG，并在每次代码推送到 `main` 后，由 GitHub 自动构建和更新固定的 `latest` Release。
 
 本次先使用现有的本机临时签名。Apple Developer ID 签名和公证需要开发者证书，后续单独配置。
 
@@ -11,7 +11,7 @@
 仓库只维护一个持续更新的 Release：
 
 - 标签固定为 `latest`。
-- Release 标题固定为 `Codex Switcher Latest`。
+- Release 标题固定为 `Codex Switch5 Latest`。
 - 每次 `main` 推送成功构建后，用新 DMG 替换 Release 中的旧文件。
 - Release 说明记录本次提交号和构建时间。
 - 固定下载地址不会随提交变化。
@@ -22,13 +22,13 @@
 
 新增 `scripts/build-dmg.sh`，职责保持单一：
 
-1. 调用现有 `scripts/build-app.sh` 生成 `dist/Codex Switcher.app`。
+1. 调用现有 `scripts/build-app.sh` 生成 `dist/Codex Switch5.app`。
 2. 验证应用签名和必要文件是否存在。
 3. 创建临时 DMG 目录。
 4. 将应用复制到目录中。
 5. 创建指向 `/Applications` 的快捷入口。
 6. 使用 macOS 自带的 `hdiutil` 生成压缩 DMG。
-7. 输出 `dist/Codex-Switcher.dmg`。
+7. 输出 `dist/Codex-Switch5.dmg`。
 
 脚本使用临时目录完成中间步骤，生成失败时不会留下不完整的正式 DMG。
 
@@ -76,13 +76,13 @@
 - Swift 核心检查通过。
 - 应用构建成功且签名验证通过。
 - DMG 可以挂载。
-- DMG 中存在 `Codex Switcher.app` 和 `Applications` 快捷入口。
+- DMG 中存在 `Codex Switch5.app` 和 `Applications` 快捷入口。
 - 卸载 DMG 后没有残留挂载点。
 
 推送后的检查：
 
 - GitHub Actions 在 macOS 环境成功完成。
 - `latest` 标签指向最新的 `main` 提交。
-- `Codex Switcher Latest` Release 存在。
+- `Codex Switch5 Latest` Release 存在。
 - Release 中可以下载 DMG 和 SHA-256 校验文件。
 - README 的下载地址指向固定 Release。

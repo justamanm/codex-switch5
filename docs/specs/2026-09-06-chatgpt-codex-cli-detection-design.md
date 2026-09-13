@@ -2,7 +2,7 @@
 
 ## 目标
 
-Codex Switcher 分别检测 ChatGPT 和 Codex CLI，根据本机可用的登录入口调整切换与新增账号流程。ChatGPT 保持自动关闭和打开；Codex CLI 不由应用控制，只提醒用户手动退出和重新打开。
+Codex Switch5 分别检测 ChatGPT 和 Codex CLI，根据本机可用的登录入口调整切换与新增账号流程。ChatGPT 保持自动关闭和打开；Codex CLI 不由应用控制，仅在 CLI 专用操作开始前提醒用户退出，完成提示不再提及 Codex CLI。
 
 ## 安装检测
 

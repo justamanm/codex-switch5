@@ -35,10 +35,15 @@ final class AppModel: ObservableObject {
     @Published var removingAccount: String?
     @Published var accountGroupState = AccountGroupState()
     @Published var pendingAddAccountGroupID: UUID?
+    @Published var pendingReauthenticationReplacementAccount: String?
+    @Published var showsReauthenticationGroupOptions = false
     @Published var accountGroupError: String?
     @Published private(set) var tokenEvents: [TokenUsageEvent] = []
     @Published private(set) var weeklyQuotaProjections: [String: WeeklyQuotaProjection] = [:]
     @Published private(set) var switchHistory: [SwitchHistoryRecord] = []
+    @Published private(set) var usageLearning = UsageLearningSummary()
+    @Published private(set) var usageLearningPeriod: UsageLearningPeriod = .lastThirtyDays
+    @Published private(set) var usageHistoryError: String?
     @Published private(set) var isCodexCLIInstalled = false
     @Published private(set) var isDetectingCodexCLI = true
     @Published private(set) var addAccountUsesChatGPT = false
@@ -51,6 +56,8 @@ final class AppModel: ObservableObject {
     @AppStorage("didMigrateEmailDefaultNames") private var didMigrateEmailDefaultNames = false
 
     private let codexDirectory = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex")
+    private let appDataDirectory: URL
+    private var appDataMigrationError: String?
     private var automaticTask: Task<Void, Never>?
     private var loginWatchTask: Task<Void, Never>?
     private var loginSession: AccountLoginSession?
@@ -59,19 +66,30 @@ final class AppModel: ObservableObject {
     private var noticeTask: Task<Void, Never>?
     private var resetRefreshTasks: [String: Task<Void, Never>] = [:]
     private var triggeredResetKeys: Set<String> = []
+    private var usageLearningTask: Task<Void, Never>?
+    private lazy var usageHistoryStore = UsageHistoryStore(
+        url: appDataDirectory.appendingPathComponent("codex_switcher_usage_history.jsonl")
+    )
     private lazy var tokenTracker = TokenUsageTracker(
         roots: [codexDirectory.appendingPathComponent("sessions"), codexDirectory.appendingPathComponent("archived_sessions")],
-        stateURL: codexDirectory.appendingPathComponent("codex_switcher_token_usage.json")
+        stateURL: appDataDirectory.appendingPathComponent("codex_switcher_token_usage.json")
     )
     private lazy var switchHistoryStore = SwitchHistoryStore(
-        url: codexDirectory.appendingPathComponent("codex_switcher_switch_history.json")
+        url: appDataDirectory.appendingPathComponent("codex_switcher_switch_history.json")
     )
     private lazy var weeklyQuotaProjectionStore = WeeklyQuotaProjectionStore(
-        url: codexDirectory.appendingPathComponent("codex_switcher_weekly_quota_projection.json")
+        url: appDataDirectory.appendingPathComponent("codex_switcher_weekly_quota_projection.json")
     )
     private lazy var accountGroupStore = AccountGroupStore(
-        url: codexDirectory.appendingPathComponent("codex_switcher_account_groups.json")
+        url: appDataDirectory.appendingPathComponent("codex_switcher_account_groups.json")
     )
+    private var nativeAccountService: NativeAccountService {
+        NativeAccountService(
+            codexDirectory: codexDirectory,
+            usageURL: appDataDirectory.appendingPathComponent("account_usage.json"),
+            usageHistoryURL: appDataDirectory.appendingPathComponent("codex_switcher_usage_history.jsonl")
+        )
+    }
 
     private enum StartupRecovery {
         case none
@@ -80,6 +98,12 @@ final class AppModel: ObservableObject {
     }
 
     init() {
+        appDataDirectory = AppDataDirectory.url()
+        do {
+            _ = try AppDataDirectory.migrateLegacyFiles(from: codexDirectory, to: appDataDirectory)
+        } catch {
+            appDataMigrationError = error.localizedDescription
+        }
         let stored = UserDefaults.standard.string(forKey: "appLanguage")
         appLanguage = AppLanguage(rawValue: stored ?? "") ?? .system
         status = AppLocalization.text("准备就绪", language: appLanguage)
@@ -139,8 +163,12 @@ final class AppModel: ObservableObject {
         switchHistory = switchHistoryStore.load()
         weeklyQuotaProjections = weeklyQuotaProjectionStore.projections()
         refreshTokenUsage()
+        updateUsageLearning()
         beginWeeklyQuotaProjectionIfNeeded(for: currentName)
         configureAutomaticRefresh()
+        if let appDataMigrationError {
+            lastError = text("无法迁移应用数据：%@", appDataMigrationError)
+        }
         switch recovery {
         case .none:
             break
@@ -153,7 +181,7 @@ final class AppModel: ObservableObject {
 
     private func recoverInterruptedLoginOperation() -> StartupRecovery {
         do {
-            if try AccountReauthenticationSession.recoverInterrupted(in: codexDirectory) {
+            if try AccountReauthenticationSession.recoverInterrupted(in: codexDirectory, stateDirectory: appDataDirectory) {
                 return .notice(text("已恢复上次未完成的重新登录"))
             }
         } catch {
@@ -209,7 +237,7 @@ final class AppModel: ObservableObject {
 
     private func recoverInterruptedAddition() -> StartupRecovery {
         do {
-            switch try AccountLoginSession.recoverInterrupted(in: codexDirectory) {
+            switch try AccountLoginSession.recoverInterrupted(in: codexDirectory, stateDirectory: appDataDirectory) {
             case .none:
                 return .none
             case .restoredOriginal:
@@ -226,7 +254,7 @@ final class AppModel: ObservableObject {
                 } else {
                     registeredName = availableInternalName(for: activeIdentity)
                 }
-                try AccountLoginSession.finishPending(directory: codexDirectory, account: registeredName)
+                try AccountLoginSession.finishPending(directory: codexDirectory, stateDirectory: appDataDirectory, account: registeredName)
                 return .notice(text("已完成上次中断的新增账号"))
             }
         } catch {
@@ -237,24 +265,19 @@ final class AppModel: ObservableObject {
     func loadFromDisk() {
         guard !isAddingAccount else { return }
         do {
-            let marker = codexDirectory.appendingPathComponent(".active-auth-profile")
-            let parts = (try? String(contentsOf: marker, encoding: .utf8))?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .split(separator: " ", maxSplits: 1)
-            if let parts, parts.count == 2 {
-                currentType = String(parts[0])
-                currentName = String(parts[1])
-            } else if let recovered = recoverMissingActiveProfile() {
+            let savedAccount = UserDefaults.standard.string(forKey: "activeSwitch5Account")
+            if let resolvedAccount = resolvedActiveAccountName() {
                 currentType = "account"
-                currentName = recovered
-                try Data("account \(recovered)\n".utf8).write(to: marker, options: .atomic)
-                status = text("已恢复当前账号识别")
+                currentName = resolvedAccount
+                setActiveAccountState(resolvedAccount)
+                if savedAccount != resolvedAccount { status = text("已恢复当前账号识别") }
             } else {
                 currentType = ""
                 currentName = ""
             }
 
-            let usageURL = codexDirectory.appendingPathComponent("account_usage.json")
+            let usageURL = appDataDirectory.appendingPathComponent("account_usage.json")
+            try nativeAccountService.restoreInvalidUsageFromHistory()
             let knownNames = knownAccountNames()
             accounts = try UsageStore.decode(Data(contentsOf: usageURL)).filter { knownNames.contains($0.name) }
             aliases = loadAliases()
@@ -279,7 +302,7 @@ final class AppModel: ObservableObject {
         status = text("正在查询账号限额…")
         lastError = nil
         Task {
-            let result = await runScript([automatic ? "refresh-auto" : "refresh"])
+            let result = await runNativeOperation([automatic ? "refresh-auto" : "refresh"])
             isRefreshing = false
             loadFromDisk()
             refreshTokenUsage()
@@ -301,7 +324,7 @@ final class AppModel: ObservableObject {
         beginWeeklyQuotaProjectionIfNeeded(for: account)
         lastError = nil
         Task {
-            let result = await runScript(["refresh", account])
+            let result = await runNativeOperation(["refresh", account])
             refreshingAccounts.remove(account)
             loadFromDisk()
             refreshTokenUsage()
@@ -362,6 +385,8 @@ final class AppModel: ObservableObject {
         }
         lastError = nil
         pendingAddAccountGroupID = nil
+        pendingReauthenticationReplacementAccount = nil
+        showsReauthenticationGroupOptions = false
         addAccountStage = text("准备添加新账号")
         showingAddAccount = true
     }
@@ -386,6 +411,9 @@ final class AppModel: ObservableObject {
             return
         }
         lastError = nil
+        pendingAddAccountGroupID = groupID(for: account)
+        pendingReauthenticationReplacementAccount = nil
+        showsReauthenticationGroupOptions = false
         reauthenticatingAccount = account
         addAccountStage = text("准备重新登录 %@", displayName(for: account))
         showingAddAccount = true
@@ -417,11 +445,12 @@ final class AppModel: ObservableObject {
                 if let reauthAccount {
                     reauthenticationSession = try AccountReauthenticationSession(
                         directory: codexDirectory,
+                        stateDirectory: appDataDirectory,
                         currentAccount: archivedName,
                         targetAccount: reauthAccount
                     )
                 } else {
-                    loginSession = try AccountLoginSession(directory: codexDirectory, account: archivedName)
+                    loginSession = try AccountLoginSession(directory: codexDirectory, stateDirectory: appDataDirectory, account: archivedName)
                 }
                 isWaitingForLogin = true
                 if let chatGPTURL {
@@ -448,7 +477,9 @@ final class AppModel: ObservableObject {
             let wasReauthentication = reauthenticatingAccount != nil
             showingAddAccount = false
             reauthenticatingAccount = nil
-            if !wasReauthentication { pendingAddAccountGroupID = nil }
+            pendingAddAccountGroupID = nil
+            pendingReauthenticationReplacementAccount = nil
+            showsReauthenticationGroupOptions = false
             showNotice(text(wasReauthentication ? "已取消重新登录" : "已取消添加账号"))
             return
         }
@@ -464,6 +495,14 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func addAccountSheetDidDismiss() {
+        guard !isAddingAccount else { return }
+        reauthenticatingAccount = nil
+        pendingAddAccountGroupID = nil
+        pendingReauthenticationReplacementAccount = nil
+        showsReauthenticationGroupOptions = false
+    }
+
     private func closeChatGPT(at applicationURL: URL? = nil) async throws {
         guard let applicationURL = applicationURL ?? chatGPTApplicationURL else { return }
         guard let bundleID = Bundle(url: applicationURL)?.bundleIdentifier else { return }
@@ -477,6 +516,12 @@ final class AppModel: ObservableObject {
         throw NSError(domain: "CodexSwitcher", code: 1, userInfo: [
             NSLocalizedDescriptionKey: text("ChatGPT 未能关闭，请手动关闭后重试。账号文件未修改。")
         ])
+    }
+
+    private func isChatGPTRunning(at applicationURL: URL?) -> Bool {
+        guard let applicationURL,
+              let bundleID = Bundle(url: applicationURL)?.bundleIdentifier else { return false }
+        return !NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).isEmpty
     }
 
     private func restoreLoginSession(failure: String?) async {
@@ -497,20 +542,21 @@ final class AppModel: ObservableObject {
             showingAddAccount = false
             let wasReauthentication = reauthenticatingAccount != nil
             reauthenticatingAccount = nil
-            if !wasReauthentication { pendingAddAccountGroupID = nil }
+            pendingAddAccountGroupID = nil
+            pendingReauthenticationReplacementAccount = nil
+            showsReauthenticationGroupOptions = false
             loadFromDisk()
             configureAutomaticRefresh()
-            let shouldRestartCLI = loginRequiresCLIRestart
+            let shouldRemindAboutCLI = loginRequiresCLIRestart
             loginRequiresCLIRestart = false
             if let failure {
-                lastError = shouldRestartCLI
-                    ? text(wasReauthentication ? "重新登录失败，原账号已保留：%@ 请重新打开 Codex CLI。" : "添加失败，原账号已保留：%@ 请重新打开 Codex CLI。", failure)
-                    : text(wasReauthentication ? "重新登录失败，原账号已保留：%@" : "添加失败，原账号已保留：%@", failure)
+                lastError = text(wasReauthentication ? "重新登录失败，原账号已保留：%@" : "添加失败，原账号已保留：%@", failure)
             } else {
                 lastError = nil
-                showNotice(text(shouldRestartCLI
-                    ? (wasReauthentication ? "已取消重新登录，请重新打开 Codex CLI" : "已取消添加账号，请重新打开 Codex CLI")
-                    : (wasReauthentication ? "已取消重新登录" : "已取消添加账号")))
+                showNotice(loginOutcomeNotice(
+                    text(wasReauthentication ? "已取消重新登录" : "已取消添加账号"),
+                    shouldRemindAboutCLI: shouldRemindAboutCLI
+                ))
             }
         } catch {
             // 保留恢复对象和备份，允许用户退出登录应用后再次取消。
@@ -570,23 +616,40 @@ final class AppModel: ObservableObject {
     func confirmSwitch() {
         guard !isAddingAccount, !isSwitching, !isRefreshing, refreshingAccounts.isEmpty else { return }
         guard let account = pendingSwitchAccount else { return }
+        guard let sourceAccount = resolvedActiveAccountName() else {
+            showingSwitchConfirmation = false
+            pendingSwitchAccount = nil
+            lastError = text("无法根据实际凭据确认当前账号，已停止切换以避免覆盖账号文件。")
+            return
+        }
+        setActiveAccountState(sourceAccount)
+        currentType = "account"
+        currentName = sourceAccount
+        guard sourceAccount != account else {
+            showingSwitchConfirmation = false
+            pendingSwitchAccount = nil
+            status = text("该账号已在使用中")
+            return
+        }
         showingSwitchConfirmation = false
         isSwitching = true
         lastError = nil
         let installedChatGPTURL = chatGPTApplicationURL
-        let sourceAccount = currentName
-        status = installedChatGPTURL == nil ? text("正在切换到 %@…", account) : text("正在关闭 ChatGPT…")
+        let shouldReopenChatGPT = isChatGPTRunning(at: installedChatGPTURL)
+        status = shouldReopenChatGPT ? text("正在关闭 ChatGPT…") : text("正在切换到 %@…", account)
         Task {
             do {
                 refreshTokenUsage()
                 beginWeeklyQuotaProjectionIfNeeded(for: sourceAccount)
-                let sourceRefresh = await runScript(["refresh", sourceAccount])
+                let sourceRefresh = await runNativeOperation(["refresh", sourceAccount])
                 loadFromDisk()
                 refreshTokenUsage()
                 if sourceRefresh.code == 0 { finishWeeklyQuotaProjection(for: sourceAccount) }
-                try await closeChatGPT(at: installedChatGPTURL)
+                if shouldReopenChatGPT {
+                    try await closeChatGPT(at: installedChatGPTURL)
+                }
                 status = text("正在切换到 %@…", account)
-                let result = await runScript(["switch", account])
+                let result = await runNativeOperation(["switch", account])
                 loadFromDisk()
                 guard result.code == 0 else {
                     if sourceRefresh.code == 0 { beginWeeklyQuotaProjection(for: sourceAccount) }
@@ -598,34 +661,29 @@ final class AppModel: ObservableObject {
                     return
                 }
                 let switchedAt = Date()
+                currentType = "account"
+                currentName = account
+                setActiveAccountState(account)
                 recordSwitch(from: sourceAccount, to: account, result: .success, timestamp: switchedAt)
                 try tokenTracker.recordAccountChange(account: account, at: switchedAt)
                 refreshTokenUsage()
-                let targetRefresh = await runScript(["refresh", account])
+                let targetRefresh = await runNativeOperation(["refresh", account])
                 loadFromDisk()
                 refreshTokenUsage()
                 if targetRefresh.code == 0 { beginWeeklyQuotaProjection(for: account) }
-                if let installedChatGPTURL {
+                if shouldReopenChatGPT, let installedChatGPTURL {
                     do {
                         try await NSWorkspace.shared.openApplication(at: installedChatGPTURL, configuration: NSWorkspace.OpenConfiguration())
-                        if isCodexCLIInstalled {
-                            status = text("已切换到 %@，已打开 ChatGPT；请重新打开 Codex CLI", account)
-                            showNotice(text("账号已切换，请重新打开 Codex CLI"))
-                        } else {
-                            status = text("已切换到 %@，已打开 ChatGPT", account)
-                            showNotice(text("账号已切换"))
-                        }
+                        status = text("已切换到 %@，已打开 ChatGPT", account)
+                        showNotice(switchOutcomeNotice())
                     } catch {
-                        status = text(isCodexCLIInstalled ? "账号已切换，请重新打开 Codex CLI" : "账号已切换")
+                        status = text("账号已切换")
                         lastError = text("已切换账号，但无法打开 ChatGPT：%@", error.localizedDescription)
-                        if isCodexCLIInstalled { showNotice(text("账号已切换，请重新打开 Codex CLI")) }
+                        showNotice(switchOutcomeNotice())
                     }
-                } else if isCodexCLIInstalled {
-                    status = text("已切换到 %@，请重新打开 Codex CLI", account)
-                    showNotice(text("账号已切换，请重新打开 Codex CLI"))
                 } else {
-                    status = text("已切换到 %@，未检测到 ChatGPT，已跳过自动打开", account)
-                    showNotice(text("账号已切换"))
+                    status = text("已切换到 %@，ChatGPT 未运行，已保持关闭", account)
+                    showNotice(switchOutcomeNotice())
                 }
             } catch {
                 lastError = error.localizedDescription
@@ -643,6 +701,8 @@ final class AppModel: ObservableObject {
         message: String = "",
         timestamp: Date = Date()
     ) {
+        guard from != to else { return }
+        saveUsageHistory([.accountChanged(from: from, to: to, timestamp: timestamp, succeeded: result == .success)])
         do {
             switchHistory = try switchHistoryStore.append(SwitchHistoryRecord(
                 timestamp: timestamp,
@@ -675,6 +735,9 @@ final class AppModel: ObservableObject {
         case .currentWeek:
             start = calendar.dateInterval(of: .weekOfYear, for: now)?.start
                 ?? calendar.startOfDay(for: now)
+        case .currentMonth:
+            start = calendar.dateInterval(of: .month, for: now)?.start
+                ?? calendar.startOfDay(for: now)
         case .weeklyQuotaCycle:
             let resetText = accounts.first { $0.name == account }?.weeklyResetAt
             let formatter = ISO8601DateFormatter()
@@ -685,6 +748,10 @@ final class AppModel: ObservableObject {
         return tokenTracker.totals(events: tokenEvents, account: account, from: start, to: now)
     }
 
+    func tokenTotals(from start: Date, to end: Date) -> TokenUsageTotals {
+        tokenTracker.totals(events: tokenEvents, from: start, to: end)
+    }
+
     func tokenTotals(period: TokenUsagePeriod, now: Date = Date()) -> TokenUsageTotals {
         accounts.reduce(into: TokenUsageTotals()) { total, account in
             let accountTotal = tokenTotals(for: account.name, period: period, now: now)
@@ -693,6 +760,7 @@ final class AppModel: ObservableObject {
             total.cacheWriteInput += accountTotal.cacheWriteInput
             total.output += accountTotal.output
             total.reasoningOutput += accountTotal.reasoningOutput
+            total.autoReviewTokens += accountTotal.autoReviewTokens
             total.estimatedUSD += accountTotal.estimatedUSD
             total.unpricedEvents += accountTotal.unpricedEvents
         }
@@ -709,6 +777,19 @@ final class AppModel: ObservableObject {
             .hour(.twoDigits(amPM: .omitted)).minute(.twoDigits)
             .locale(appLanguage.locale)
         return text("开始 %@\n重置 %@", start.formatted(format), reset.formatted(format))
+    }
+
+    func fiveHourPeriodText(for account: String) -> String? {
+        guard
+            let resetText = accounts.first(where: { $0.name == account })?.fiveHourReset,
+            let reset = AccountRecommender.resetDate(resetText)
+        else { return nil }
+        let start = reset.addingTimeInterval(-5 * 60 * 60)
+        let format = Date.FormatStyle()
+            .month(.twoDigits).day(.twoDigits)
+            .hour(.twoDigits(amPM: .omitted)).minute(.twoDigits)
+            .locale(appLanguage.locale)
+        return text("开始 %@\n结束 %@", start.formatted(format), reset.formatted(format))
     }
 
     private func beginWeeklyQuotaProjection(for account: String) {
@@ -814,26 +895,90 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func runScript(_ arguments: [String]) async -> (code: Int32, output: String) {
-        let script = codexDirectory.appendingPathComponent("switch-account.sh").path
-        return await Task.detached {
-            let process = Process()
-            let pipe = Pipe()
-            process.executableURL = URL(fileURLWithPath: script)
-            process.arguments = arguments
-            process.standardOutput = pipe
-            process.standardError = pipe
-            do {
-                try process.run()
-                process.waitUntilExit()
-                let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                let text = String(data: data, encoding: .utf8)?
-                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                return (process.terminationStatus, text)
-            } catch {
-                return (1, await MainActor.run { self.text("无法运行切换脚本：%@", error.localizedDescription) })
+    private func runNativeOperation(_ arguments: [String]) async -> (code: Int32, output: String) {
+        let isQuotaQuery = arguments.first == "refresh" || arguments.first == "refresh-auto"
+        let startedAt = Date()
+        let usageURL = appDataDirectory.appendingPathComponent("account_usage.json")
+        let before = isQuotaQuery ? ((try? UsageStore.decode(Data(contentsOf: usageURL))) ?? []) : []
+        let activeAccount = currentType == "account" ? currentName : nil
+        let requested: Set<String>
+        if !isQuotaQuery {
+            requested = []
+        } else if arguments.count > 1 {
+            requested = [arguments[1]]
+        } else {
+            let skipped = arguments.first == "refresh-auto" ? Set(before.filter(\.authInvalid).map(\.name)) : []
+            requested = knownAccountNames().subtracting(skipped)
+        }
+        let result: (code: Int32, output: String)
+        do {
+            if arguments.first == "switch", let target = arguments.dropFirst().first {
+                try nativeAccountService.switchAccount(from: currentName, to: target)
+                result = (0, text("账号已切换"))
+            } else if isQuotaQuery {
+                let skipInvalid = arguments.first == "refresh-auto" ? Set(before.filter(\.authInvalid).map(\.name)) : []
+                _ = try await nativeAccountService.refresh(accounts: requested, currentAccount: currentName, skippingInvalid: skipInvalid)
+                result = (0, text("额度已更新"))
+            } else {
+                result = (1, text("不支持的账号操作"))
             }
-        }.value
+        } catch {
+            result = (1, error.localizedDescription)
+        }
+        if isQuotaQuery {
+            let after = (try? UsageStore.decode(Data(contentsOf: usageURL))) ?? []
+            saveUsageHistory(UsageQueryHistory.events(
+                before: before, after: after, requested: requested, startedAt: startedAt,
+                finishedAt: Date(), activeAccount: activeAccount
+            ))
+        }
+        return result
+    }
+
+    private func saveUsageHistory(_ events: [UsageHistoryEvent]) {
+        do {
+            let records = try usageHistoryStore.append(events)
+            usageHistoryError = nil
+            updateUsageLearning(records: records)
+        } catch {
+            usageHistoryError = text("无法保存使用历史，原文件已保留：%@", error.localizedDescription)
+        }
+    }
+
+    func updateUsageLearning(records: [UsageHistoryEvent]? = nil, period: UsageLearningPeriod? = nil) {
+        do {
+            let records = try records ?? usageHistoryStore.load()
+            if let period { usageLearningPeriod = period }
+            let selectedPeriod = usageLearningPeriod
+            usageLearningTask?.cancel()
+            usageLearningTask = Task { [weak self] in
+                let tokenEvents = self?.tokenEvents ?? []
+                let summary = await Task.detached(priority: .utility) {
+                    UsageLearning.summarize(records, tokenEvents: tokenEvents, period: selectedPeriod)
+                }.value
+                guard !Task.isCancelled else { return }
+                self?.usageLearning = summary
+            }
+        } catch {
+            usageHistoryError = text("无法读取使用历史，原文件已保留：%@", error.localizedDescription)
+        }
+    }
+
+    func usageLearningPeriodText(now: Date = Date()) -> String {
+        var calendar = Calendar.current
+        let start: Date
+        switch usageLearningPeriod {
+        case .currentWeek:
+            calendar.firstWeekday = 2
+            calendar.minimumDaysInFirstWeek = 4
+            start = calendar.dateInterval(of: .weekOfYear, for: now)?.start ?? calendar.startOfDay(for: now)
+        case .currentMonth:
+            start = calendar.dateInterval(of: .month, for: now)?.start ?? calendar.startOfDay(for: now)
+        case .lastThirtyDays:
+            start = calendar.date(byAdding: .day, value: -29, to: calendar.startOfDay(for: now)) ?? now
+        }
+        let format = Date.FormatStyle().month(.twoDigits).day(.twoDigits).locale(appLanguage.locale)
+        return text("统计范围：%@ 至 %@", start.formatted(format), now.formatted(format))
     }
 
     private func watchForNewLogin() async throws {
@@ -849,6 +994,21 @@ final class AppModel: ObservableObject {
                 }
                 try session.complete()
                 let previousAccount = currentName
+                let selectedGroupID = pendingAddAccountGroupID
+                let changesGroup = showsReauthenticationGroupOptions
+                let replacementAccount = changesGroup
+                    ? validReauthenticationReplacementAccount(
+                        pendingReauthenticationReplacementAccount,
+                        targetAccount: reauthAccount,
+                        groupID: selectedGroupID
+                    )
+                    : nil
+                // 新凭据已成为 auth.json；必须先更新当前账号，后续加载和刷新才会读取活动凭据，
+                // 而不是已清理的 auth.json.<账号> 旧存档。
+                currentType = "account"
+                currentName = reauthAccount
+                setActiveAccountState(reauthAccount)
+                try nativeAccountService.markAuthenticated(account: reauthAccount)
                 reauthenticationSession = nil
                 reauthenticatingAccount = nil
                 isAddingAccount = false
@@ -856,13 +1016,27 @@ final class AppModel: ObservableObject {
                 addAccountUsesChatGPT = false
                 showingAddAccount = false
                 loadFromDisk()
-                recordAccountOperation(action: .reauthenticate, from: previousAccount, to: reauthAccount)
+                let groupAssignmentSaved = changesGroup && applyReauthenticationGroupAssignment(
+                    account: reauthAccount,
+                    to: selectedGroupID,
+                    replacing: replacementAccount
+                )
+                pendingAddAccountGroupID = nil
+                pendingReauthenticationReplacementAccount = nil
+                showsReauthenticationGroupOptions = false
+                recordAccountOperation(
+                    action: .reauthenticate,
+                    from: previousAccount,
+                    to: reauthAccount,
+                    selectedGroupID: selectedGroupID,
+                    includesGroupAssignment: groupAssignmentSaved
+                )
                 configureAutomaticRefresh()
-                let shouldRestartCLI = loginRequiresCLIRestart
+                let shouldRemindAboutCLI = loginRequiresCLIRestart
                 loginRequiresCLIRestart = false
-                showNotice(text(
-                    shouldRestartCLI ? "已重新登录 %@，请重新打开 Codex CLI" : "已重新登录 %@",
-                    displayName(for: reauthAccount)
+                showNotice(loginOutcomeNotice(
+                    text("已重新登录 %@", displayName(for: reauthAccount)),
+                    shouldRemindAboutCLI: shouldRemindAboutCLI
                 ))
                 refresh(account: reauthAccount)
                 return
@@ -870,23 +1044,46 @@ final class AppModel: ObservableObject {
                 let internalName = availableInternalName(for: identity)
                 let previousAccount = currentName
                 let selectedGroupID = pendingAddAccountGroupID
+                let changesGroup = showsReauthenticationGroupOptions
+                let replacementAccount = changesGroup
+                    ? validReauthenticationReplacementAccount(
+                        pendingReauthenticationReplacementAccount,
+                        targetAccount: internalName,
+                        groupID: selectedGroupID
+                    )
+                    : nil
                 // 此处到登记完成没有等待点，取消不会插入到一半。
                 try session.complete(account: internalName)
+                currentType = "account"
+                currentName = internalName
+                setActiveAccountState(internalName)
                 loginSession = nil
                 isAddingAccount = false
                 isWaitingForLogin = false
                 addAccountUsesChatGPT = false
                 showingAddAccount = false
                 loadFromDisk()
-                updateAccountGroups { $0.assign(accounts: [internalName], to: selectedGroupID) }
+                let groupAssignmentSaved = changesGroup && applyReauthenticationGroupAssignment(
+                    account: internalName,
+                    to: selectedGroupID,
+                    replacing: replacementAccount
+                )
                 pendingAddAccountGroupID = nil
-                recordAccountOperation(action: .addAccount, from: previousAccount, to: internalName)
+                pendingReauthenticationReplacementAccount = nil
+                showsReauthenticationGroupOptions = false
+                recordAccountOperation(
+                    action: .addAccount,
+                    from: previousAccount,
+                    to: internalName,
+                    selectedGroupID: selectedGroupID,
+                    includesGroupAssignment: groupAssignmentSaved
+                )
                 configureAutomaticRefresh()
-                let shouldRestartCLI = loginRequiresCLIRestart
+                let shouldRemindAboutCLI = loginRequiresCLIRestart
                 loginRequiresCLIRestart = false
-                showNotice(text(
-                    shouldRestartCLI ? "已添加 %@，请重新打开 Codex CLI" : "已添加 %@",
-                    displayName(for: internalName)
+                showNotice(loginOutcomeNotice(
+                    text("已添加 %@", displayName(for: internalName)),
+                    shouldRemindAboutCLI: shouldRemindAboutCLI
                 ))
                 refresh(account: internalName)
                 return
@@ -895,16 +1092,94 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func recordAccountOperation(action: AccountHistoryAction, from: String, to: String) {
+    private func switchOutcomeNotice() -> String {
+        loginOutcomeNotice(text("账号已切换"), shouldRemindAboutCLI: isCodexCLIInstalled)
+    }
+
+    private func loginOutcomeNotice(_ outcome: String, shouldRemindAboutCLI: Bool) -> String {
+        guard shouldRemindAboutCLI else { return outcome }
+        return "\(outcome) \(text("如果你在使用 Codex CLI，请手动重启；否则无需操作。"))"
+    }
+
+    private func recordAccountOperation(
+        action: AccountHistoryAction,
+        from: String,
+        to: String,
+        selectedGroupID: UUID? = nil,
+        includesGroupAssignment: Bool = false
+    ) {
+        saveUsageHistory([.accountChanged(from: from, to: to, timestamp: Date(), succeeded: true)])
         do {
             switchHistory = try switchHistoryStore.append(SwitchHistoryRecord(
                 fromAccount: from,
                 toAccount: to,
                 result: .success,
-                action: action
+                action: action,
+                toGroup: groupName(for: selectedGroupID),
+                includesGroupAssignment: includesGroupAssignment
             ))
         } catch {
             lastError = text("无法保存切换记录：%@", error.localizedDescription)
+        }
+    }
+
+    /// 依据实际 auth.json 和账号存档关系确认当前账号，避免只信任可能过期的偏好设置。
+    private func resolvedActiveAccountName() -> String? {
+        let files = FileManager.default
+        let activeURL = codexDirectory.appendingPathComponent("auth.json")
+        guard files.fileExists(atPath: activeURL.path) else { return nil }
+
+        var names = Set(accounts.map(\.name))
+        let usageURL = appDataDirectory.appendingPathComponent("account_usage.json")
+        if let stored = try? UsageStore.decode(Data(contentsOf: usageURL)) {
+            names.formUnion(stored.map(\.name))
+        }
+        let contents = (try? files.contentsOfDirectory(at: codexDirectory, includingPropertiesForKeys: nil)) ?? []
+        for url in contents where url.lastPathComponent.hasPrefix("auth.json.") {
+            let suffix = String(url.lastPathComponent.dropFirst("auth.json.".count))
+            if suffix != "bak" && suffix != "hub" && !suffix.hasPrefix("hub.") { names.insert(suffix) }
+        }
+        let saved = UserDefaults.standard.string(forKey: "activeSwitch5Account")
+        let markerURL = appDataDirectory.appendingPathComponent(".active-auth-profile")
+        let marker = (try? String(contentsOf: markerURL, encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "account ", with: "")
+        if let saved, !saved.isEmpty { names.insert(saved) }
+        if let marker, !marker.isEmpty { names.insert(marker) }
+
+        let withoutArchive = names.filter {
+            !files.fileExists(atPath: codexDirectory.appendingPathComponent("auth.json.\($0)").path)
+        }
+        if withoutArchive.count == 1 { return withoutArchive.first }
+        if let marker, withoutArchive.contains(marker) { return marker }
+        if let saved, withoutArchive.contains(saved) { return saved }
+
+        guard let activeIdentity = identity(from: activeURL) else { return nil }
+        let emailPrefix = activeIdentity.email.split(separator: "@", maxSplits: 1).first.map(String.init) ?? ""
+        let identitySource = emailPrefix.isEmpty ? activeIdentity.originalName : emailPrefix
+        let identityName = identitySource.lowercased().map { character in
+            character.isLetter || character.isNumber ? String(character) : "_"
+        }.joined().trimmingCharacters(in: CharacterSet(charactersIn: "_"))
+        if !identityName.isEmpty, withoutArchive.contains(identityName) { return identityName }
+
+        // 重新登录异常中断时可能同时存在活动凭据和同账号旧存档，只按公开身份字段匹配。
+        let matchingArchives = names.filter {
+            identity(from: codexDirectory.appendingPathComponent("auth.json.\($0)")) == activeIdentity
+        }
+        if let marker, matchingArchives.contains(marker) { return marker }
+        if let saved, matchingArchives.contains(saved) { return saved }
+        return matchingArchives.count == 1 ? matchingArchives.first : nil
+    }
+
+    private func setActiveAccountState(_ account: String) {
+        UserDefaults.standard.set(account, forKey: "activeSwitch5Account")
+        do {
+            try FileManager.default.createDirectory(at: appDataDirectory, withIntermediateDirectories: true)
+            let markerURL = appDataDirectory.appendingPathComponent(".active-auth-profile")
+            try Data("account \(account)\n".utf8).write(to: markerURL, options: .atomic)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: markerURL.path)
+        } catch {
+            // UserDefaults 仍可用于下次识别；写入错误会在实际文件操作时再次暴露。
         }
     }
 
@@ -944,19 +1219,36 @@ final class AppModel: ObservableObject {
     }
 
     private func loadAliases() -> [String: String] {
-        let url = codexDirectory.appendingPathComponent("account_aliases.json")
+        let url = appDataDirectory.appendingPathComponent("account_aliases.json")
         guard let data = try? Data(contentsOf: url) else { return [:] }
         return (try? JSONDecoder().decode([String: String].self, from: data)) ?? [:]
     }
 
     private func saveAliases() {
-        let url = codexDirectory.appendingPathComponent("account_aliases.json")
+        let url = appDataDirectory.appendingPathComponent("account_aliases.json")
+        try? FileManager.default.createDirectory(at: appDataDirectory, withIntermediateDirectories: true)
         guard let data = try? JSONEncoder().encode(aliases) else { return }
         try? data.write(to: url, options: .atomic)
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
 
     func groupID(for account: String) -> UUID? { accountGroupState.accountGroupIDs[account] }
+
+    func reauthenticationReplacementCandidates(for groupID: UUID?, excluding account: String? = nil) -> [String] {
+        guard let groupID else { return [] }
+        return accounts
+            .map(\.name)
+            .filter { $0 != account && accountGroupState.accountGroupIDs[$0] == groupID }
+            .sorted { displayName(for: $0).localizedStandardCompare(displayName(for: $1)) == .orderedAscending }
+    }
+
+    func clearInvalidReauthenticationReplacement() {
+        pendingReauthenticationReplacementAccount = validReauthenticationReplacementAccount(
+            pendingReauthenticationReplacementAccount,
+            targetAccount: reauthenticatingAccount,
+            groupID: pendingAddAccountGroupID
+        )
+    }
 
     @discardableResult
     func createAccountGroup(name: String) -> UUID? {
@@ -970,16 +1262,51 @@ final class AppModel: ObservableObject {
     }
 
     func deleteAccountGroup(id: UUID) {
-        updateAccountGroups { $0.deleteGroup(id: id) }
+        let affectedAccounts = Set(accountGroupState.accountGroupIDs.compactMap { $0.value == id ? $0.key : nil })
+        let previous = accountGroupState
+        if updateAccountGroups({ $0.deleteGroup(id: id) }) {
+            recordGroupChanges(for: affectedAccounts, from: previous, to: accountGroupState)
+        }
     }
 
     func assignAccounts(_ accounts: Set<String>, to groupID: UUID?) {
-        updateAccountGroups { $0.assign(accounts: accounts, to: groupID) }
+        let previous = accountGroupState
+        if updateAccountGroups({ $0.assign(accounts: accounts, to: groupID) }) {
+            recordGroupChanges(for: accounts, from: previous, to: accountGroupState)
+        }
+    }
+
+    private func validReauthenticationReplacementAccount(
+        _ account: String?,
+        targetAccount: String?,
+        groupID: UUID?
+    ) -> String? {
+        guard let account, let targetAccount,
+              reauthenticationReplacementCandidates(for: groupID, excluding: targetAccount).contains(account)
+        else { return nil }
+        return account
+    }
+
+    private func applyReauthenticationGroupAssignment(
+        account: String,
+        to groupID: UUID?,
+        replacing replacementAccount: String?
+    ) -> Bool {
+        let previous = accountGroupState
+        let changedAccounts = Set([account, replacementAccount].compactMap { $0 })
+        let succeeded = updateAccountGroups { state in
+            state.assignReauthenticatedAccount(account, to: groupID, replacing: replacementAccount)
+        }
+        if succeeded {
+            recordGroupChanges(for: changedAccounts, from: previous, to: accountGroupState)
+        }
+        return succeeded
     }
 
     @discardableResult
     func replaceAccounts(in groupID: UUID?, with accounts: Set<String>) -> Bool {
-        updateAccountGroups { state in
+        let previous = accountGroupState
+        let succeeded = updateAccountGroups { state in
             if let groupID {
                 let removedAccounts = Set(state.accountGroupIDs.compactMap { account, assignedGroupID in
                     assignedGroupID == groupID && !accounts.contains(account) ? account : nil
@@ -988,6 +1315,41 @@ final class AppModel: ObservableObject {
                 state.assign(accounts: accounts, to: groupID)
             } else {
                 state.assign(accounts: accounts, to: nil)
+            }
+        }
+        if succeeded {
+            let changedAccounts = Set(previous.accountGroupIDs.keys).union(accountGroupState.accountGroupIDs.keys).union(accounts)
+            recordGroupChanges(for: changedAccounts, from: previous, to: accountGroupState)
+        }
+        return succeeded
+    }
+
+    private func groupName(for id: UUID?, in state: AccountGroupState? = nil) -> String? {
+        guard let id else { return nil }
+        return (state ?? accountGroupState).groups.first(where: { $0.id == id })?.name
+    }
+
+    private func recordGroupChanges(
+        for accounts: Set<String>,
+        from previous: AccountGroupState,
+        to current: AccountGroupState
+    ) {
+        for account in accounts.sorted() {
+            let previousID = previous.accountGroupIDs[account]
+            let currentID = current.accountGroupIDs[account]
+            guard previousID != currentID else { continue }
+            do {
+                switchHistory = try switchHistoryStore.append(SwitchHistoryRecord(
+                    fromAccount: account,
+                    toAccount: account,
+                    result: .success,
+                    action: .changeGroup,
+                    fromGroup: groupName(for: previousID, in: previous),
+                    toGroup: groupName(for: currentID, in: current),
+                    includesGroupAssignment: true
+                ))
+            } catch {
+                lastError = text("无法保存切换记录：%@", error.localizedDescription)
             }
         }
     }

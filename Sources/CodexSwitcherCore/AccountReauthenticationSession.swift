@@ -19,7 +19,7 @@ public final class AccountReauthenticationSession {
     private let originalMarker: Data
     public private(set) var isPending = true
 
-    public init(directory: URL, currentAccount: String, targetAccount: String) throws {
+    public init(directory: URL, stateDirectory: URL, currentAccount: String, targetAccount: String) throws {
         try Self.validate(currentAccount)
         try Self.validate(targetAccount)
         guard currentAccount != targetAccount else { throw Self.failure("当前账号无需重新登录。") }
@@ -29,9 +29,9 @@ public final class AccountReauthenticationSession {
         active = directory.appendingPathComponent("auth.json")
         currentArchive = directory.appendingPathComponent("auth.json.\(currentAccount)")
         targetArchive = directory.appendingPathComponent("auth.json.\(targetAccount)")
-        marker = directory.appendingPathComponent(".active-auth-profile")
-        pending = Self.pendingURL(in: directory)
-        originalMarker = try Data(contentsOf: marker)
+        marker = stateDirectory.appendingPathComponent(".active-auth-profile")
+        pending = Self.pendingURL(in: stateDirectory)
+        originalMarker = (try? Data(contentsOf: marker)) ?? Data("account \(currentAccount)\n".utf8)
         guard FileManager.default.fileExists(atPath: active.path) else { throw Self.failure("找不到当前 auth.json。") }
         guard !FileManager.default.fileExists(atPath: currentArchive.path) else { throw Self.failure("当前账号备份已存在，为避免覆盖已停止。") }
         guard FileManager.default.fileExists(atPath: targetArchive.path) else { throw Self.failure("找不到需要重新登录的账号文件。") }
@@ -42,6 +42,7 @@ public final class AccountReauthenticationSession {
                 targetAccount: targetAccount,
                 originalMarker: String(decoding: originalMarker, as: UTF8.self)
             )
+            try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
             try JSONEncoder().encode(record).write(to: pending, options: .atomic)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: pending.path)
             try FileManager.default.moveItem(at: active, to: currentArchive)
@@ -58,6 +59,7 @@ public final class AccountReauthenticationSession {
         guard isPending else { return }
         let files = FileManager.default
         guard files.fileExists(atPath: active.path) else { throw Self.failure("找不到重新登录后的凭据。") }
+        try files.createDirectory(at: marker.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("account \(targetAccount)\n".utf8).write(to: marker, options: .atomic)
         try files.removeItem(at: targetArchive)
         try files.removeItem(at: pending)
@@ -76,8 +78,8 @@ public final class AccountReauthenticationSession {
     }
 
     /// 若标记已指向目标账号，说明新凭据已验证，完成清理；否则恢复原账号。
-    public static func recoverInterrupted(in directory: URL) throws -> Bool {
-        let pending = pendingURL(in: directory)
+    public static func recoverInterrupted(in directory: URL, stateDirectory: URL) throws -> Bool {
+        let pending = pendingURL(in: stateDirectory)
         guard FileManager.default.fileExists(atPath: pending.path) else { return false }
         let record = try JSONDecoder().decode(PendingReauthentication.self, from: Data(contentsOf: pending))
         try validate(record.currentAccount)
@@ -86,7 +88,7 @@ public final class AccountReauthenticationSession {
         let active = directory.appendingPathComponent("auth.json")
         let currentArchive = directory.appendingPathComponent("auth.json.\(record.currentAccount)")
         let targetArchive = directory.appendingPathComponent("auth.json.\(record.targetAccount)")
-        let marker = directory.appendingPathComponent(".active-auth-profile")
+        let marker = stateDirectory.appendingPathComponent(".active-auth-profile")
         let markerText = (try? String(contentsOf: marker, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines)
         if markerText == "account \(record.targetAccount)", files.fileExists(atPath: active.path) {
             if files.fileExists(atPath: targetArchive.path) { try files.removeItem(at: targetArchive) }

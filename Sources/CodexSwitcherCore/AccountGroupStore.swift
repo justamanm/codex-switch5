@@ -47,6 +47,20 @@ public struct AccountGroupState: Codable, Equatable, Sendable {
         }
     }
 
+    /// 一次完成账号入组及可选的原成员移出，交由存储层整体保存。
+    public mutating func assignReauthenticatedAccount(
+        _ account: String,
+        to groupID: UUID?,
+        replacing replacementAccount: String?
+    ) {
+        if let replacementAccount,
+           replacementAccount != account,
+           accountGroupIDs[replacementAccount] == groupID {
+            accountGroupIDs.removeValue(forKey: replacementAccount)
+        }
+        assign(accounts: [account], to: groupID)
+    }
+
     public mutating func clean(validAccounts: Set<String>) {
         let groupIDs = Set(groups.map(\.id))
         accountGroupIDs = accountGroupIDs.filter {

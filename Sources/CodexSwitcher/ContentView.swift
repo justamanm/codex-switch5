@@ -6,6 +6,9 @@ struct ContentView: View {
 
     var body: some View {
         DashboardView()
+            .font(.system(size: 15))
+            .controlSize(.large)
+            .dynamicTypeSize(.xxLarge)
     }
 
     private var sidebar: some View {
@@ -24,14 +27,14 @@ struct ContentView: View {
                 }
             }
         }
-        .navigationTitle("Codex Switcher5")
+        .navigationTitle("Codex Switch5")
         .listStyle(.sidebar)
         .frame(minWidth: 280)
     }
 
     private var currentCard: some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text(model.text("当前使用")).font(.caption).foregroundStyle(.secondary)
+            Text(model.text("当前使用")).font(.system(size: 14)).foregroundStyle(.secondary)
             HStack {
                 Image(systemName: model.currentType == "hub" ? "network" : "person.crop.circle.fill")
                     .foregroundStyle(.tint)
@@ -39,7 +42,7 @@ struct ContentView: View {
                     .font(.headline)
                 Spacer()
                 Text(model.text(model.currentType == "hub" ? "中转站" : "账号"))
-                    .font(.caption2.weight(.semibold))
+                    .font(.system(size: 13, weight: .semibold))
                     .padding(.horizontal, 7).padding(.vertical, 3)
                     .background(.quaternary, in: Capsule())
             }
@@ -80,13 +83,13 @@ struct ContentView: View {
                     Text(account.name).font(.system(size: 30, weight: .bold, design: .rounded))
                     if model.recommendation?.name == account.name {
                         Label(model.text("推荐"), systemImage: "sparkles")
-                            .font(.caption.weight(.semibold)).foregroundStyle(.green)
+                            .font(.system(size: 14, weight: .semibold)).foregroundStyle(.green)
                             .padding(.horizontal, 9).padding(.vertical, 5)
                             .background(.green.opacity(0.1), in: Capsule())
                     }
                 }
                 Text(model.text("最近更新：%@", formattedTimestamp(account.notedAt)))
-                    .font(.callout).foregroundStyle(.secondary)
+                    .font(.system(size: 15)).foregroundStyle(.secondary)
             }
             Spacer()
             Button {
@@ -110,7 +113,7 @@ struct ContentView: View {
                     .font(.headline).foregroundStyle(.secondary)
                 Text("\(account.resetCards)").font(.system(size: 42, weight: .bold, design: .rounded))
                 Text(model.text(account.resetCards > 0 ? "需要时可使用" : "当前没有可用重置卡"))
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.system(size: 14)).foregroundStyle(.secondary)
             }
             .padding(18).frame(maxWidth: .infinity, minHeight: 160, alignment: .leading)
             .background(.background, in: RoundedRectangle(cornerRadius: 16))
@@ -137,7 +140,7 @@ struct ContentView: View {
                 .onChange(of: model.refreshIntervalUnit) { _, _ in model.configureAutomaticRefresh() }
             }
             Text(model.text("自动查询默认每 1 分钟执行；可自定义秒或分钟。全量查询时账号之间间隔 1 秒。"))
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.system(size: 14)).foregroundStyle(.secondary)
         }
         .padding(18).background(.background, in: RoundedRectangle(cornerRadius: 16))
         .overlay(RoundedRectangle(cornerRadius: 16).stroke(.quaternary))
@@ -147,7 +150,7 @@ struct ContentView: View {
         HStack(spacing: 7) {
             if model.isRefreshing { ProgressView().controlSize(.small) }
             Circle().fill(model.lastError == nil ? .green : .orange).frame(width: 7, height: 7)
-            Text(model.status).font(.caption).lineLimit(1)
+            Text(model.status).font(.system(size: 14)).lineLimit(1)
         }
         .padding(.horizontal, 10).padding(.vertical, 6)
         .background(.thinMaterial, in: Capsule())
@@ -178,7 +181,7 @@ private struct AccountRow: View {
                 Label("\(account.fiveHourRemaining)%", systemImage: "clock")
                 Label("\(account.weeklyRemaining)%", systemImage: "calendar")
             }
-            .font(.caption).foregroundStyle(.secondary)
+            .font(.system(size: 14)).foregroundStyle(.secondary)
         }
         .padding(.vertical, 5)
     }
@@ -203,7 +206,7 @@ private struct QuotaCard: View {
                 Text("%").font(.title3).foregroundStyle(.secondary)
             }
             ProgressView(value: Double(value), total: 100).tint(color)
-            Text(model.text("重置：%@", reset)).font(.caption).foregroundStyle(.secondary)
+            Text(model.text("重置：%@", reset)).font(.system(size: 14)).foregroundStyle(.secondary)
         }
         .padding(18).frame(maxWidth: .infinity, minHeight: 160, alignment: .leading)
         .background(.background, in: RoundedRectangle(cornerRadius: 16))

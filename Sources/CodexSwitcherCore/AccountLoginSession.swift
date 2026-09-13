@@ -14,6 +14,7 @@ public final class AccountLoginSession {
     }
 
     private let directory: URL
+    private let stateDirectory: URL
     private let active: URL
     private let archived: URL
     private let marker: URL
@@ -22,14 +23,15 @@ public final class AccountLoginSession {
     private var restored = false
     public private(set) var isPending = true
 
-    public init(directory: URL, account: String) throws {
+    public init(directory: URL, stateDirectory: URL, account: String) throws {
         try Self.validate(account)
         self.directory = directory
+        self.stateDirectory = stateDirectory
         active = directory.appendingPathComponent("auth.json")
         archived = directory.appendingPathComponent("auth.json.\(account)")
-        marker = directory.appendingPathComponent(".active-auth-profile")
-        pending = Self.pendingURL(in: directory)
-        originalMarker = try Data(contentsOf: marker)
+        marker = stateDirectory.appendingPathComponent(".active-auth-profile")
+        pending = Self.pendingURL(in: stateDirectory)
+        originalMarker = (try? Data(contentsOf: marker)) ?? Data("account \(account)\n".utf8)
         guard FileManager.default.fileExists(atPath: active.path) else { throw Self.failure("找不到当前 auth.json。") }
         guard !FileManager.default.fileExists(atPath: archived.path) else { throw Self.failure("旧账号备份已存在，为避免覆盖已停止。") }
         guard !FileManager.default.fileExists(atPath: pending.path) else { throw Self.failure("已有未完成的新增账号操作，请重新打开应用完成恢复。") }
@@ -47,7 +49,7 @@ public final class AccountLoginSession {
 
     public func complete(account: String) throws {
         guard isPending, !restored else { throw Self.failure("添加流程已经结束。") }
-        try Self.finishPending(directory: directory, account: account)
+        try Self.finishPending(directory: directory, stateDirectory: stateDirectory, account: account)
         isPending = false
     }
 
@@ -68,14 +70,14 @@ public final class AccountLoginSession {
     }
 
     /// 仅处理上一次 Switcher 意外退出留下的文件状态，不读取或输出凭据内容。
-    public static func recoverInterrupted(in directory: URL) throws -> InterruptedAddition {
-        let pendingURL = pendingURL(in: directory)
+    public static func recoverInterrupted(in directory: URL, stateDirectory: URL) throws -> InterruptedAddition {
+        let pendingURL = pendingURL(in: stateDirectory)
         guard FileManager.default.fileExists(atPath: pendingURL.path) else { return .none }
         let record = try JSONDecoder().decode(PendingAddition.self, from: Data(contentsOf: pendingURL))
         try validate(record.account)
         let active = directory.appendingPathComponent("auth.json")
         let archived = directory.appendingPathComponent("auth.json.\(record.account)")
-        let marker = directory.appendingPathComponent(".active-auth-profile")
+        let marker = stateDirectory.appendingPathComponent(".active-auth-profile")
         let files = FileManager.default
         if !files.fileExists(atPath: archived.path), files.fileExists(atPath: active.path) {
             try files.removeItem(at: pendingURL)
@@ -90,17 +92,19 @@ public final class AccountLoginSession {
     }
 
     /// 新凭据已存在时，完成上一次未完成的新增账号登记。
-    public static func finishPending(directory: URL, account: String) throws {
+    public static func finishPending(directory: URL, stateDirectory: URL, account: String) throws {
         try validate(account)
         let active = directory.appendingPathComponent("auth.json")
         guard FileManager.default.fileExists(atPath: active.path) else { throw failure("找不到待登记的新账号凭据。") }
-        try Data("account \(account)\n".utf8).write(to: directory.appendingPathComponent(".active-auth-profile"), options: .atomic)
-        try FileManager.default.removeItem(at: pendingURL(in: directory))
+        try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
+        try Data("account \(account)\n".utf8).write(to: stateDirectory.appendingPathComponent(".active-auth-profile"), options: .atomic)
+        try FileManager.default.removeItem(at: pendingURL(in: stateDirectory))
     }
 
     private static func pendingURL(in directory: URL) -> URL { directory.appendingPathComponent(".codex-switcher-addition-pending.json") }
 
     private static func writePending(_ record: PendingAddition, to url: URL) throws {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try JSONEncoder().encode(record).write(to: url, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }

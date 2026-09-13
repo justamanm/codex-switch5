@@ -1,4 +1,5 @@
 import AppKit
+import Charts
 import CodexSwitcherCore
 import SwiftUI
 
@@ -9,6 +10,9 @@ struct DashboardView: View {
     @State private var showingSortManager = false
     @State private var accountsWidth: CGFloat = 0
     @State private var selectedSection = DashboardSection.accounts
+    @State private var switchHistoryCategory = SwitchHistoryCategory.account
+    @State private var tokenHistoryInterval = TokenHistoryInterval.day
+    @State private var tokenUsageDisplay = TokenUsageDisplay.summary
     @Namespace private var sectionPickerAnimation
     @State private var draggedAccountName: String?
     @State private var dragOrderNames: [String]?
@@ -30,11 +34,24 @@ struct DashboardView: View {
         case switchHistory
     }
 
+    private enum SwitchHistoryCategory: String, CaseIterable, Hashable {
+        case account
+        case group
+
+        var title: String {
+            switch self {
+            case .account: "账号切换"
+            case .group: "分组切换"
+            }
+        }
+    }
+
     private enum TokenUsageSortPeriod: String, CaseIterable {
         case fiveHours
         case weeklyQuotaCycle
         case today
         case currentWeek
+        case currentMonth
 
         var usagePeriod: TokenUsagePeriod {
             switch self {
@@ -42,17 +59,69 @@ struct DashboardView: View {
             case .weeklyQuotaCycle: .weeklyQuotaCycle
             case .today: .today
             case .currentWeek: .currentWeek
+            case .currentMonth: .currentMonth
             }
         }
 
         var title: String {
             switch self {
-            case .fiveHours: "5h"
+            case .fiveHours: "5h额度周期"
             case .weeklyQuotaCycle: "周额度周期"
             case .today: "今天"
             case .currentWeek: "本周"
+            case .currentMonth: "本月"
             }
         }
+    }
+
+    private enum TokenHistoryInterval: String, CaseIterable, Hashable {
+        case day
+        case week
+        case month
+
+        var title: String {
+            switch self {
+            case .day: "每日"
+            case .week: "每周"
+            case .month: "每月"
+            }
+        }
+
+        var calendarComponent: Calendar.Component {
+            switch self {
+            case .day: .day
+            case .week: .weekOfYear
+            case .month: .month
+            }
+        }
+
+        var bucketCount: Int {
+            switch self {
+            case .day: 14
+            case .week, .month: 12
+            }
+        }
+    }
+
+    private enum TokenUsageDisplay: String, CaseIterable, Hashable {
+        case summary
+        case accounts
+        case learning
+
+        var title: String {
+            switch self {
+            case .summary: "统计信息"
+            case .accounts: "账号明细"
+            case .learning: "使用习惯"
+            }
+        }
+    }
+
+    private struct TokenHistoryPoint: Identifiable {
+        let start: Date
+        let label: String
+        let totals: TokenUsageTotals
+        var id: Date { start }
     }
 
     var body: some View {
@@ -105,7 +174,7 @@ struct DashboardView: View {
         .overlay(alignment: .top) {
             if let notice = model.notice {
                 Text(notice)
-                    .font(.callout)
+                    .font(.system(size: 15))
                     .padding(.horizontal, 18).padding(.vertical, 12)
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
                     .shadow(radius: 6)
@@ -128,7 +197,7 @@ struct DashboardView: View {
         } message: {
             Text(model.text("账号凭据将移到废纸篓，可以恢复；不会永久删除。"))
         }
-        .sheet(isPresented: $model.showingAddAccount) {
+        .sheet(isPresented: $model.showingAddAccount, onDismiss: model.addAccountSheetDidDismiss) {
             addAccountSheet.interactiveDismissDisabled(model.isAddingAccount)
         }
         .sheet(isPresented: $showingSettings) { settingsSheet }
@@ -163,20 +232,20 @@ struct DashboardView: View {
                         .lineLimit(1)
                         .fixedSize(horizontal: true, vertical: false)
                 }
-                .font(.callout)
+                .font(.system(size: 15))
                 Spacer()
                 Button { model.prepareAddAccount() } label: {
                     Label(model.text("增加账号"), systemImage: "person.badge.plus")
                         .fixedSize(horizontal: true, vertical: false)
                 }
-                .controlSize(.regular)
+                .controlSize(.large)
                 .disabled(model.isSwitching)
                 Button { model.refresh() } label: {
                     Label(model.text(model.isRefreshing ? "正在刷新" : "刷新"), systemImage: "arrow.clockwise")
                         .frame(minWidth: 62)
                 }
                 .buttonStyle(.borderedProminent)
-                .controlSize(.regular)
+                .controlSize(.large)
                 .disabled(model.isRefreshing || model.isSwitching)
             }
         }
@@ -217,8 +286,10 @@ struct DashboardView: View {
                         .matchedGeometryEffect(id: "section-selection", in: sectionPickerAnimation)
                 }
                 Text(title)
-                    .font(.callout.weight(.medium))
+                    .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(selectedSection == section ? Color.white : .primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .contentShape(Rectangle())
@@ -229,7 +300,7 @@ struct DashboardView: View {
     }
 
     private var sectionPickerWidth: CGFloat {
-        280
+        model.appLanguage.resolved() == .english ? 360 : 280
     }
 
     private var accountOverview: some View {
@@ -258,9 +329,9 @@ struct DashboardView: View {
                         )
                     } else {
                         VStack(alignment: .leading, spacing: 5) {
-                            Text(model.text("下一个账号")).font(.callout.weight(.semibold)).foregroundStyle(recommendedAccent)
+                            Text(model.text("下一个账号")).font(.system(size: 15, weight: .semibold)).foregroundStyle(recommendedAccent)
                             Text(model.text("暂无可用账号")).font(.title3.bold())
-                            Text(model.text("请刷新额度后重试")).font(.callout).foregroundStyle(.secondary)
+                            Text(model.text("请刷新额度后重试")).font(.system(size: 15)).foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -271,7 +342,7 @@ struct DashboardView: View {
             if let account = model.recommendation {
                 VStack(spacing: 3) {
                     Button { model.requestSwitch(to: account.name) } label: {
-                        Text(model.text("切换")).frame(width: 44)
+                        Text(model.text("切换")).frame(minWidth: 58)
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
@@ -309,7 +380,7 @@ struct DashboardView: View {
                 .background(tint.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
             VStack(alignment: .leading, spacing: 4) {
                 if usesCompactLayout {
-                    Text(title).font(.callout.weight(.semibold)).foregroundStyle(tint)
+                    Text(title).font(.system(size: 15, weight: .semibold)).foregroundStyle(tint)
                     HoverAccountName(name: name, identityHelp: identityHelp, font: .title3.bold())
                         .foregroundStyle(tint)
                         .lineLimit(1)
@@ -322,7 +393,7 @@ struct DashboardView: View {
                             .lineLimit(1)
                             .layoutPriority(1)
                         Text(title)
-                            .font(.callout.weight(.semibold))
+                            .font(.system(size: 15, weight: .semibold))
                             .foregroundStyle(tint)
                     }
                     overviewUsage(account)
@@ -340,7 +411,7 @@ struct DashboardView: View {
                 Text(model.text("暂无额度信息"))
             }
         }
-        .font(.callout)
+        .font(.system(size: 15))
         .foregroundStyle(.secondary)
         .lineLimit(1)
     }
@@ -349,34 +420,36 @@ struct DashboardView: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .firstTextBaseline) {
                 Text(model.text("所有账号")).font(.title3.bold())
-                Text(model.text("%d 个", model.accounts.count)).font(.callout).foregroundStyle(.secondary)
+                Text(model.text("%d 个", model.accounts.count)).font(.system(size: 15)).foregroundStyle(.secondary)
                 Spacer()
+                if let latestUpdate {
+                    Label(model.text("额度更新于 %@", latestUpdate), systemImage: "clock")
+                        .font(.system(size: 15))
+                        .foregroundStyle(.secondary)
+                        .padding(.trailing, 10)
+                }
                 Button { showingSortManager = true } label: {
                     Label(
                         accountSortRules.isEmpty ? model.text("排序") : model.text("排序 %d", accountSortRules.count),
                         systemImage: "arrow.up.arrow.down"
                     )
                 }
-                .controlSize(.small)
+                .controlSize(.regular)
                 Toggle(model.text("按分组显示"), isOn: $showsAccountGroups)
                     .toggleStyle(.checkbox)
-                    .font(.callout)
+                    .font(.system(size: 15))
                 Button(model.text("管理分组")) { showingGroupManager = true }
-                    .controlSize(.small)
-                if let latestUpdate {
-                    Label(model.text("额度更新于 %@", latestUpdate), systemImage: "clock")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
+                    .controlSize(.regular)
             }
             LazyVStack(spacing: 10) {
                 if showsAccountGroups {
                     ForEach(groupedAccountSections, id: \.id) { section in
                         if !section.accounts.isEmpty {
                             HStack {
-                                Text(section.name).font(.headline)
+                                Text(section.name)
+                                    .font(.system(size: 16, weight: .semibold))
                                 Text(model.text("%d 个", section.accounts.count))
-                                    .font(.caption).foregroundStyle(.secondary)
+                                    .font(.system(size: 14)).foregroundStyle(.secondary)
                                 Spacer()
                             }
                             .padding(.top, 4)
@@ -406,6 +479,7 @@ struct DashboardView: View {
                         usesCompactLayout: usesCompactLayout,
                         isRefreshing: model.refreshingAccounts.contains(account.name),
                         isSwitching: model.isSwitching,
+                        showsGroupPicker: showsAccountGroups,
                         refreshAction: { model.refresh(account: account.name) },
                         switchAction: { model.requestSwitch(to: account.name) },
                         aliasAction: { model.beginEditingAlias(account.name) },
@@ -520,6 +594,7 @@ struct DashboardView: View {
                 usesCompactLayout: usesCompactLayout,
                 isRefreshing: model.refreshingAccounts.contains(account.name),
                 isSwitching: model.isSwitching,
+                showsGroupPicker: false,
                 refreshAction: {}, switchAction: {}, aliasAction: {}, removeAction: {}, reauthenticateAction: {},
                 allowsDragging: false,
                 isBeingDragged: false,
@@ -591,14 +666,14 @@ struct DashboardView: View {
                 .onChange(of: model.refreshIntervalUnit) { _, _ in model.configureAutomaticRefresh() }
             }
             Text(model.text("自动查询默认每 1 分钟执行；可自定义秒或分钟。全量查询时账号之间间隔 1 秒，单账号查询立即执行。"))
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.system(size: 14)).foregroundStyle(.secondary)
             Divider()
             HStack {
                 Text(model.text("版本"))
                 Spacer()
                 Text(AppVersion.display)
             }
-            .font(.caption)
+            .font(.system(size: 14))
             .foregroundStyle(.secondary)
         }
         .padding(24)
@@ -615,42 +690,66 @@ struct DashboardView: View {
     private var tokenUsageSection: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 14) {
-                Text(model.text("Token 统计")).font(.title3.bold())
+                Text(model.text("Token 统计"))
+                    .font(.title3.bold())
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                Picker("", selection: $tokenUsageDisplay) {
+                    ForEach(TokenUsageDisplay.allCases, id: \.self) { display in
+                        Text(model.text(display.title)).tag(display)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .frame(width: model.appLanguage.resolved() == .english ? 290 : 230)
                 Spacer()
                 HStack(spacing: 14) {
                     Text(model.text("仅统计启用此功能后的本机记录"))
-                        .font(.caption).foregroundStyle(.secondary)
-                    Picker(model.text("排序"), selection: $tokenUsageSortPeriod) {
-                        ForEach(TokenUsageSortPeriod.allCases, id: \.rawValue) { option in
-                            Text(model.text(option.title)).tag(option.rawValue)
+                        .font(.system(size: 14)).foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.trailing)
+                    if tokenUsageDisplay == .accounts {
+                        Picker(model.text("账号排序"), selection: $tokenUsageSortPeriod) {
+                            ForEach(TokenUsageSortPeriod.allCases, id: \.rawValue) { option in
+                                Text(model.text(option.title)).tag(option.rawValue)
+                            }
                         }
+                        .pickerStyle(.menu)
+                        .frame(width: 190)
                     }
-                    .pickerStyle(.menu)
-                    .frame(width: 165)
                 }
             }
             .padding(.horizontal, pageHorizontalPadding).padding(.vertical, 16)
             Divider()
-            ScrollView {
-                LazyVStack(spacing: 10) {
-                    tokenUsageSummary
-                        .padding(.bottom, 2)
-                    Divider()
-                        .padding(.vertical, 2)
-                    ForEach(tokenUsageSortedAccounts) { account in
-                        tokenUsageAccountRow(account)
+            if tokenUsageDisplay == .learning {
+                UsageLearningView()
+            } else {
+                ScrollView(tokenUsageDisplay == .accounts ? [.horizontal, .vertical] : .vertical) {
+                    LazyVStack(spacing: 10) {
+                        if tokenUsageDisplay == .summary {
+                            tokenUsageSummary
+                                .padding(.bottom, 2)
+                            tokenUsageHistoryChart
+                        } else {
+                            ForEach(tokenUsageSortedAccounts) { account in
+                                tokenUsageAccountRow(account)
+                            }
+                        }
                     }
+                    .frame(minWidth: tokenUsageDisplay == .accounts ? 1120 : nil)
+                    .padding(.horizontal, pageHorizontalPadding)
+                    .padding(.vertical, 16)
                 }
-                .padding(.horizontal, pageHorizontalPadding)
-                .padding(.vertical, 16)
             }
-            Divider()
-            HStack {
-                Text(model.text("总计包含缓存 Token。价格为 OpenAI API 等值估算，使用美元；* 表示仅部分用量可估算。"))
-                    .font(.caption).foregroundStyle(.secondary)
-                Spacer()
+            if tokenUsageDisplay != .learning {
+                Divider()
+                HStack {
+                    Text(model.text("Token 总计不包含 codex-auto-review，其用量单独标注。金额不包含 codex-auto-review；* 表示还有其他用量无法估算。"))
+                        .font(.system(size: 14)).foregroundStyle(.secondary)
+                    Spacer()
+                }
+                .padding(.horizontal, pageHorizontalPadding).padding(.vertical, 12)
             }
-            .padding(.horizontal, pageHorizontalPadding).padding(.vertical, 12)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -658,38 +757,180 @@ struct DashboardView: View {
     private var tokenUsageSummary: some View {
         ViewThatFits(in: .horizontal) {
             HStack(spacing: 12) {
-                tokenUsageSummaryCard(title: "今日总 Token", totals: model.tokenTotals(period: .today))
-                tokenUsageSummaryCard(title: "本周总 Token", totals: model.tokenTotals(period: .currentWeek))
+                tokenUsageSummaryCard(periodTitle: "今日", totals: model.tokenTotals(period: .today))
+                tokenUsageSummaryCard(periodTitle: "本周", totals: model.tokenTotals(period: .currentWeek))
+                tokenUsageSummaryCard(periodTitle: "本月", totals: model.tokenTotals(period: .currentMonth))
             }
             VStack(spacing: 10) {
-                tokenUsageSummaryCard(title: "今日总 Token", totals: model.tokenTotals(period: .today))
-                tokenUsageSummaryCard(title: "本周总 Token", totals: model.tokenTotals(period: .currentWeek))
+                tokenUsageSummaryCard(periodTitle: "今日", totals: model.tokenTotals(period: .today))
+                tokenUsageSummaryCard(periodTitle: "本周", totals: model.tokenTotals(period: .currentWeek))
+                tokenUsageSummaryCard(periodTitle: "本月", totals: model.tokenTotals(period: .currentMonth))
             }
         }
     }
 
-    private func tokenUsageSummaryCard(title: String, totals: TokenUsageTotals) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 14) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(model.text(title))
-                    .font(.callout.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                Text(compactTokens(totals.total))
-                    .font(.title2.bold())
+    private var tokenUsageHistoryChart: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(model.text("历史 Token 用量"))
+                        .font(.headline)
+                    Text(model.text("柱形为 Token，用量金额标在柱形上方；仅统计本机已记录的数据"))
+                        .font(.system(size: 14)).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Picker("", selection: $tokenHistoryInterval) {
+                    ForEach(TokenHistoryInterval.allCases, id: \.self) { interval in
+                        Text(model.text(interval.title)).tag(interval)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .frame(width: 230)
             }
-            Spacer(minLength: 12)
-            VStack(alignment: .trailing, spacing: 4) {
+
+            ScrollView(.horizontal) {
+                Chart(tokenHistoryPoints) { point in
+                    BarMark(
+                        x: .value(model.text("时间"), point.label),
+                        y: .value(model.text("Token 用量"), point.totals.total)
+                    )
+                    .foregroundStyle(accent.gradient)
+                    .cornerRadius(3)
+                    .annotation(position: .top) {
+                        if point.totals.total > 0 {
+                            Text(chartPriceText(point.totals))
+                                .font(.system(size: 13).monospacedDigit())
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityLabel(point.label)
+                    .accessibilityValue(model.text("%@ Token，金额 %@", compactTokens(point.totals.total), chartPriceText(point.totals)))
+                }
+                .chartYAxis {
+                    AxisMarks(position: .leading) { value in
+                        AxisGridLine()
+                        AxisValueLabel {
+                            if let amount = value.as(Double.self) { Text(compactTokens(Int(amount.rounded()))) }
+                        }
+                    }
+                }
+                .chartYScale(domain: 0...tokenHistoryChartMaximum)
+                .frame(minWidth: 1050, minHeight: 210)
+            }
+            .scrollIndicators(.visible)
+        }
+        .padding(14)
+        .background(Color.secondary.opacity(0.05), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private var tokenHistoryPoints: [TokenHistoryPoint] {
+        let calendar = Calendar.current
+        let component = tokenHistoryInterval.calendarComponent
+        let now = Date()
+        guard let currentStart = calendar.dateInterval(of: component, for: now)?.start else { return [] }
+        let formatter = DateFormatter()
+        formatter.locale = model.appLanguage.locale
+        formatter.dateFormat = tokenHistoryInterval == .month ? "yyyy-MM" : "MM-dd"
+
+        return (0..<tokenHistoryInterval.bucketCount).reversed().compactMap { offset in
+            guard
+                let start = calendar.date(byAdding: component, value: -offset, to: currentStart),
+                let end = calendar.date(byAdding: component, value: 1, to: start)
+            else { return nil }
+            return TokenHistoryPoint(
+                start: start,
+                label: formatter.string(from: start),
+                totals: model.tokenTotals(from: start, to: end)
+            )
+        }
+    }
+
+    private func tokenUsageSummaryCard(periodTitle: String, totals: TokenUsageTotals) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .center, spacing: 24) {
+                tokenUsagePrimarySummary(periodTitle: periodTitle, totals: totals)
+                    .frame(width: 205, alignment: .leading)
+                    .layoutPriority(2)
+                Divider().frame(height: 48)
+                VStack(alignment: .leading, spacing: 7) {
+                    Text(model.text("输入 %@", compactTokens(totals.input)))
+                            .font(.system(size: 14, weight: .semibold))
+                    Text(model.text("缓存 %@", compactTokens(totals.cachedInput)))
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .leading, spacing: 7) {
+                    Text(model.text("输出 %@", compactTokens(totals.output)))
+                            .font(.system(size: 14, weight: .semibold))
+                    Text(model.text("推理 %@", compactTokens(totals.reasoningOutput)))
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                if totals.autoReviewTokens > 0 {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(model.text("自动审查 %@", compactTokens(totals.autoReviewTokens)))
+                        Text(model.text("（未计入 Token 总数）"))
+                            .font(.system(size: 12))
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else if totals.unpricedEvents > 0 {
+                    Text(model.text("还有其他用量无法估算"))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+            }
+            .font(.system(size: 15))
+            VStack(alignment: .leading, spacing: 10) {
+                tokenUsagePrimarySummary(periodTitle: periodTitle, totals: totals)
                 Text(model.text("输入 %@ · 缓存 %@", compactTokens(totals.input), compactTokens(totals.cachedInput)))
                 Text(model.text("输出 %@ · 推理 %@", compactTokens(totals.output), compactTokens(totals.reasoningOutput)))
-                Text(tablePriceText(totals)).foregroundStyle(.secondary)
+                if totals.autoReviewTokens > 0 {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(model.text("自动审查 %@", compactTokens(totals.autoReviewTokens)))
+                        Text(model.text("（未计入 Token 总数）"))
+                            .font(.system(size: 12))
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
+                        .foregroundStyle(.secondary)
+                }
             }
-            .font(.caption)
+            .font(.system(size: 15))
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(accent.opacity(0.07), in: RoundedRectangle(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(accent.opacity(0.22)))
+    }
+
+    private func tokenUsagePrimarySummary(periodTitle: String, totals: TokenUsageTotals) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(model.text(
+                "%@总 Token",
+                model.text(periodTitle)
+            ))
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.secondary)
+            HStack(alignment: .firstTextBaseline, spacing: 14) {
+                Text(compactTokens(totals.total)).font(.title2.bold())
+                Text(tablePriceText(totals)).font(.title3.weight(.semibold)).foregroundStyle(.secondary)
+            }
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+        }
+    }
+
+    private var tokenHistoryChartMaximum: Double {
+        max(Double(tokenHistoryPoints.map(\.totals.total).max() ?? 0) * 1.18, 1)
+    }
+
+    private func chartPriceText(_ totals: TokenUsageTotals) -> String {
+        totals.unpricedEvents > 0
+            ? String(format: "$%.2f*", totals.estimatedUSD)
+            : String(format: "$%.2f", totals.estimatedUSD)
     }
 
     private var tokenUsageSortedAccounts: [AccountUsage] {
@@ -703,60 +944,56 @@ struct DashboardView: View {
 
     private func tokenUsageAccountRow(_ account: AccountUsage) -> some View {
         let isCurrent = model.currentType == "account" && model.currentName == account.name
-        return HStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 4) {
-                VStack(alignment: .leading, spacing: 4) {
-                    if isCurrent {
-                        Text(model.text("当前使用"))
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(accent)
-                    }
-                    Text(model.displayName(for: account.name))
-                        .font(.headline)
-                        .lineLimit(1)
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text(model.displayName(for: account.name))
+                    .font(.system(size: 18, weight: .semibold))
+                    .lineLimit(1)
+                if isCurrent {
+                    Text(model.text("当前使用"))
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(accent)
                 }
-                .foregroundStyle(isCurrent ? accent : Color.primary)
             }
-            .frame(width: tokenUsageColumnWidth(0.14), alignment: .leading)
+            .foregroundStyle(isCurrent ? accent : Color.primary)
 
-            Divider().padding(.vertical, 4)
-
-            tokenUsagePeriod(
-                title: "5h",
-                totals: model.tokenTotals(for: account.name, period: .fiveHours),
-                width: tokenUsageColumnWidth(0.21)
-            )
-            Divider().padding(.vertical, 4)
-            tokenUsagePeriod(
-                title: "周额度周期",
-                subtitle: model.weeklyQuotaPeriodText(for: account.name) ?? model.text("暂无精确重置时间"),
-                totals: model.tokenTotals(for: account.name, period: .weeklyQuotaCycle),
-                unavailable: model.weeklyQuotaPeriodText(for: account.name) == nil,
-                projection: model.weeklyQuotaProjections[account.name],
-                width: tokenUsageColumnWidth(0.23)
-            )
-            Divider().padding(.vertical, 4)
-            tokenUsagePeriod(
-                title: "今天",
-                totals: model.tokenTotals(for: account.name, period: .today),
-                width: tokenUsageColumnWidth(0.21)
-            )
-            Divider().padding(.vertical, 4)
-            tokenUsagePeriod(
-                title: "本周",
-                totals: model.tokenTotals(for: account.name, period: .currentWeek),
-                width: tokenUsageColumnWidth(0.21)
-            )
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 11)
-        .background(isCurrent ? accent.opacity(0.07) : Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
-        .overlay {
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(
-                    isCurrent ? accent.opacity(0.45) : Color.secondary.opacity(0.15),
-                    lineWidth: 1
+            HStack(spacing: 0) {
+                tokenUsagePeriod(
+                    title: "5h额度周期",
+                    subtitle: model.fiveHourPeriodText(for: account.name) ?? model.text("暂无精确重置时间"),
+                    totals: model.tokenTotals(for: account.name, period: .fiveHours),
+                    unavailable: model.fiveHourPeriodText(for: account.name) == nil,
+                    width: tokenUsageColumnWidth(0.19)
                 )
+                Divider().padding(.vertical, 4)
+                tokenUsagePeriod(
+                    title: "周额度周期",
+                    subtitle: model.weeklyQuotaPeriodText(for: account.name) ?? model.text("暂无精确重置时间"),
+                    totals: model.tokenTotals(for: account.name, period: .weeklyQuotaCycle),
+                    unavailable: model.weeklyQuotaPeriodText(for: account.name) == nil,
+                    projection: model.weeklyQuotaProjections[account.name],
+                    width: tokenUsageColumnWidth(0.23)
+                )
+                Divider().padding(.vertical, 4)
+                tokenUsagePeriod(title: "今天", totals: model.tokenTotals(for: account.name, period: .today), width: tokenUsageColumnWidth(0.19))
+                Divider().padding(.vertical, 4)
+                tokenUsagePeriod(title: "本周", totals: model.tokenTotals(for: account.name, period: .currentWeek), width: tokenUsageColumnWidth(0.19))
+                Divider().padding(.vertical, 4)
+                tokenUsagePeriod(title: "本月", totals: model.tokenTotals(for: account.name, period: .currentMonth), width: tokenUsageColumnWidth(0.19))
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
+            .background(
+                isCurrent ? accent.opacity(0.07) : Color(nsColor: .controlBackgroundColor),
+                in: RoundedRectangle(cornerRadius: 12)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(
+                        isCurrent ? accent.opacity(0.45) : Color.secondary.opacity(0.15),
+                        lineWidth: 1
+                    )
+            }
         }
     }
 
@@ -769,14 +1006,23 @@ struct DashboardView: View {
         width: CGFloat
     ) -> some View {
         VStack(alignment: .leading, spacing: 5) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(model.text(title)).font(.callout.weight(.semibold)).lineLimit(1)
-                Spacer()
-                if !unavailable {
-                    Text(compactTokens(totals.total))
-                        .font(.headline)
-                        .lineLimit(1)
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(model.text(title))
+                        .font(.system(size: 15, weight: .semibold))
                         .fixedSize(horizontal: true, vertical: false)
+                    Spacer()
+                    if !unavailable {
+                        Text(compactTokens(totals.total))
+                            .font(.headline)
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(model.text(title)).font(.system(size: 15, weight: .semibold))
+                    if !unavailable {
+                        Text(compactTokens(totals.total)).font(.headline)
+                    }
                 }
             }
             if let subtitle {
@@ -785,6 +1031,25 @@ struct DashboardView: View {
             if !unavailable {
                 Text(model.text("输入 %@ · 缓存 %@", compactTokens(totals.input), compactTokens(totals.cachedInput)))
                 Text(model.text("输出 %@ · 推理 %@", compactTokens(totals.output), compactTokens(totals.reasoningOutput)))
+                if totals.autoReviewTokens > 0 {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .firstTextBaseline, spacing: 3) {
+                            Text(model.text("codex-auto-review %@", compactTokens(totals.autoReviewTokens)))
+                            Text(model.text("（未计入 Token 总数）"))
+                                .font(.system(size: 12))
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
+                        }
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(model.text("codex-auto-review %@", compactTokens(totals.autoReviewTokens)))
+                            Text(model.text("（未计入 Token 总数）"))
+                                .font(.system(size: 12))
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
+                        }
+                    }
+                    .foregroundStyle(.secondary)
+                }
                 Text(tablePriceText(totals)).foregroundStyle(.secondary)
                 if let projection {
                     Text(model.text(
@@ -801,13 +1066,13 @@ struct DashboardView: View {
                 }
             }
         }
-        .font(.caption)
+        .font(.system(size: 14))
         .padding(.horizontal, 12)
         .frame(width: width, alignment: .leading)
     }
 
     private func tokenUsageColumnWidth(_ fraction: CGFloat) -> CGFloat {
-        max(0, accountsWidth - pageHorizontalPadding * 2 - 32) * fraction
+        max(0, max(accountsWidth, 1120) - pageHorizontalPadding * 2 - 32) * fraction
     }
 
     private func tablePriceText(_ totals: TokenUsageTotals) -> String {
@@ -820,38 +1085,50 @@ struct DashboardView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 14) {
                 Text(model.text("切换记录")).font(.title3.bold())
+                Picker("", selection: $switchHistoryCategory) {
+                    ForEach(SwitchHistoryCategory.allCases, id: \.self) { category in
+                        Text(model.text(category.title)).tag(category)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .frame(width: 230)
                 Spacer()
                 Text(model.text("仅保存在本机，最多保留 500 条"))
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.system(size: 14)).foregroundStyle(.secondary)
             }
             .padding(.horizontal, pageHorizontalPadding).padding(.vertical, 16)
             Divider()
-            if model.switchHistory.isEmpty {
+            if filteredSwitchHistory.isEmpty {
                 ContentUnavailableView(
-                    model.text("暂无切换记录"),
+                    model.text(switchHistoryCategory == .account ? "暂无账号切换记录" : "暂无分组切换记录"),
                     systemImage: "clock.arrow.circlepath",
-                    description: Text(model.text("完成账号切换、添加或重新登录后会显示在这里。"))
+                    description: Text(model.text(
+                        switchHistoryCategory == .account
+                            ? "完成账号切换、添加或重新登录后会显示在这里。"
+                            : "更换账号分组后会显示在这里。"
+                    ))
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             } else {
-                List(model.switchHistory) { record in
+                List(filteredSwitchHistory) { record in
                     HStack(spacing: 14) {
                         Image(systemName: record.result == .success ? "checkmark.circle.fill" : "xmark.circle.fill")
                             .foregroundStyle(record.result == .success ? Color.green : Color.red)
                         VStack(alignment: .leading, spacing: 4) {
                             Text(historyTitle(record))
-                                .font(.headline)
+                                .font(.system(size: 15, weight: .semibold))
                             Text(record.timestamp.formatted(
                                 .dateTime.year().month().day().hour().minute().second().locale(model.appLanguage.locale)
                             ))
-                            .font(.caption).foregroundStyle(.secondary)
+                            .font(.system(size: 14)).foregroundStyle(.secondary)
                             if !record.message.isEmpty {
-                                Text(record.message).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                                Text(record.message).font(.system(size: 14)).foregroundStyle(.secondary).lineLimit(2)
                             }
                         }
                         Spacer()
                         Text(model.text(record.result == .success ? "成功" : "失败"))
-                            .font(.callout.weight(.medium))
+                            .font(.system(size: 15, weight: .medium))
                     }
                     .padding(.vertical, 5)
                     .listRowInsets(
@@ -868,15 +1145,49 @@ struct DashboardView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    private var filteredSwitchHistory: [SwitchHistoryRecord] {
+        model.switchHistory.filter { record in
+            switch switchHistoryCategory {
+            case .account:
+                record.resolvedAction != .changeGroup
+            case .group:
+                record.resolvedAction == .changeGroup
+            }
+        }
+    }
+
     private func historyTitle(_ record: SwitchHistoryRecord) -> String {
         switch record.resolvedAction {
         case .switchAccount:
-            return model.text("%@ → %@", model.displayName(for: record.fromAccount), model.displayName(for: record.toAccount))
+            return model.text("%@ → %@", historyAccountName(record.fromAccount), historyAccountName(record.toAccount))
         case .addAccount:
-            return model.text("新增账号：%@", model.displayName(for: record.toAccount))
+            if record.includesGroupAssignment == true {
+                return model.text("新增账号：%@ · 加入 %@", historyAccountName(record.toAccount), historyGroupName(record.toGroup))
+            }
+            return model.text("新增账号：%@", historyAccountName(record.toAccount))
         case .reauthenticate:
-            return model.text("重新登录：%@", model.displayName(for: record.toAccount))
+            if record.includesGroupAssignment == true {
+                return model.text("重新登录：%@ · 加入 %@", historyAccountName(record.toAccount), historyGroupName(record.toGroup))
+            }
+            return model.text("%@ → %@（重新登录）", historyAccountName(record.fromAccount), historyAccountName(record.toAccount))
+        case .changeGroup:
+            return model.text(
+                "%@：%@ → %@",
+                historyAccountName(record.toAccount),
+                historyGroupName(record.fromGroup),
+                historyGroupName(record.toGroup)
+            )
         }
+    }
+
+    private func historyGroupName(_ group: String?) -> String {
+        group ?? model.text("未分组")
+    }
+
+    private func historyAccountName(_ account: String) -> String {
+        let alias = model.aliases[account]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !alias.isEmpty, alias != account else { return account }
+        return "\(alias)（\(account)）"
     }
 
     private func compactTokens(_ value: Int) -> String {
@@ -896,7 +1207,7 @@ struct DashboardView: View {
             Text(model.text("切换前请确认以下事项。"))
                 .foregroundStyle(.secondary)
             Label(model.text("将账号切换到 %@", model.pendingSwitchAccount ?? ""), systemImage: "person.crop.circle.badge.checkmark")
-                .font(.callout)
+                .font(.system(size: 15))
             HStack(alignment: .top, spacing: 12) {
                 if model.isChatGPTInstalled {
                     switchInstructionCard(
@@ -913,8 +1224,7 @@ struct DashboardView: View {
                         title: "Codex CLI（需手动关闭和重启）",
                         systemImage: "terminal.fill",
                         steps: [
-                            ("切换前保存工作并退出", "terminal"),
-                            ("切换完成后手动重新打开", "arrow.clockwise")
+                            ("如果你正在终端中使用 codex，请先保存并退出；如果不使用终端版 Codex，可直接继续。", "terminal")
                         ]
                     )
                 }
@@ -947,7 +1257,7 @@ struct DashboardView: View {
             Divider()
             ForEach(Array(steps.enumerated()), id: \.offset) { _, step in
                 Label(model.text(step.0), systemImage: step.1)
-                    .font(.callout)
+                    .font(.system(size: 15))
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -969,15 +1279,11 @@ struct DashboardView: View {
                 Text(model.text(model.addAccountUsesChatGPT
                     ? "取消后会关闭 ChatGPT 应用并恢复原账号。"
                     : "取消后会恢复原账号。"))
-                    .font(.caption).foregroundStyle(.secondary)
-                if model.isCodexCLIInstalled {
-                    Text(model.text("完成或取消后，请重新打开 Codex CLI。"))
-                        .font(.caption).foregroundStyle(.secondary)
-                }
+                    .font(.system(size: 14)).foregroundStyle(.secondary)
             } else {
                 VStack(alignment: .leading, spacing: 8) {
                     if model.isCodexCLIInstalled {
-                        Label(model.text("先保存并退出所有正在运行的 Codex CLI"), systemImage: "terminal")
+                        Label(model.text("如果你正在终端中使用 codex，请先保存并退出；如果不使用终端版 Codex，可直接继续。"), systemImage: "terminal")
                     }
                     if model.isChatGPTInstalled {
                         Label(model.text("继续后会关闭 ChatGPT，保留当前登录账号，只需在 ChatGPT 完成登录即可"), systemImage: "arrow.down.doc")
@@ -985,12 +1291,61 @@ struct DashboardView: View {
                         Label(model.text("继续后会保存当前账号，并等待你运行 codex login"), systemImage: "arrow.down.doc")
                     }
                 }
-                .font(.callout)
-                if model.reauthenticatingAccount == nil {
-                    Picker(model.text("加入分组"), selection: $model.pendingAddAccountGroupID) {
-                        Text(model.text("未分组")).tag(UUID?.none)
-                        ForEach(model.accountGroupState.groups) { group in
-                            Text(group.name).tag(Optional(group.id))
+                .font(.system(size: 15))
+                if model.showsReauthenticationGroupOptions {
+                    Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 12) {
+                        GridRow {
+                            Text(model.text(model.reauthenticatingAccount == nil ? "要加入的分组" : "要切换的分组"))
+                                .frame(width: 110, alignment: .trailing)
+                            Picker("", selection: $model.pendingAddAccountGroupID) {
+                                ForEach(model.accountGroupState.groups) { group in
+                                    Text(group.name).tag(Optional(group.id))
+                                }
+                                Text(model.text("未分组")).tag(UUID?.none)
+                            }
+                            .labelsHidden()
+                            .frame(width: 320)
+                        }
+                        if model.pendingAddAccountGroupID != nil {
+                            GridRow {
+                                Text(model.text("替换组内账号"))
+                                    .frame(width: 110, alignment: .trailing)
+                                Picker("", selection: $model.pendingReauthenticationReplacementAccount) {
+                                    Text(model.text("不替换，仅加入此分组")).tag(String?.none)
+                                    ForEach(
+                                        model.reauthenticationReplacementCandidates(
+                                            for: model.pendingAddAccountGroupID,
+                                            excluding: model.reauthenticatingAccount
+                                        ),
+                                        id: \.self
+                                    ) { account in
+                                        Text(model.displayName(for: account)).tag(Optional(account))
+                                    }
+                                }
+                                .labelsHidden()
+                                .frame(width: 320)
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .onChange(of: model.pendingAddAccountGroupID) {
+                        model.clearInvalidReauthenticationReplacement()
+                    }
+                    if model.pendingAddAccountGroupID != nil {
+                        Text(model.text("替换只会将所选账号移出当前分组，不会删除账号或登录凭证。"))
+                            .font(.system(size: 14))
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                    }
+                } else {
+                    HStack {
+                        Spacer()
+                        Button(model.text(model.reauthenticatingAccount == nil ? "加入分组" : "切换分组")) {
+                            if model.reauthenticatingAccount == nil,
+                               model.pendingAddAccountGroupID == nil {
+                                model.pendingAddAccountGroupID = model.accountGroupState.groups.first?.id
+                            }
+                            model.showsReauthenticationGroupOptions = true
                         }
                     }
                 }
@@ -1039,7 +1394,7 @@ private struct AccountSortManagerSheet: View {
                 Button(model.text("完成")) { dismiss() }.keyboardShortcut(.defaultAction)
             }
             Text(model.text("从上到下依次比较；时间未知的账号始终排在最后。"))
-                .font(.callout).foregroundStyle(.secondary)
+                .font(.system(size: 15)).foregroundStyle(.secondary)
             if rules.isEmpty {
                 ContentUnavailableView(model.text("使用手动排序"), systemImage: "arrow.up.arrow.down")
                     .frame(maxWidth: .infinity, minHeight: 120)
@@ -1116,8 +1471,11 @@ private struct AccountSortManagerSheet: View {
 }
 
 private struct AccountGroupManagerSheet: View {
+    private enum FocusedField: Hashable { case newGroupName, editedGroupName }
+
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
+    @FocusState private var focusedField: FocusedField?
     @State private var newGroupName = ""
     @State private var selectedGroupID: UUID?
     @State private var editedGroupName = ""
@@ -1125,81 +1483,127 @@ private struct AccountGroupManagerSheet: View {
     @State private var groupToDelete: AccountGroup?
     @State private var batchResult: String?
     @State private var batchResultTask: Task<Void, Never>?
+    private let accent = Color(red: 0.31, green: 0.57, blue: 0.39)
+    private let accountColumns = [
+        GridItem(.flexible(), spacing: 10),
+        GridItem(.flexible(), spacing: 10),
+    ]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(spacing: 0) {
             HStack {
-                Text(model.text("管理分组")).font(.title2.bold())
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(model.text("管理分组"))
+                        .font(.title2.bold())
+                    Text(model.text("创建、重命名分组，并批量调整账号归属"))
+                        .font(.system(size: 15))
+                        .foregroundStyle(.secondary)
+                }
                 Spacer()
                 Button(model.text("完成")) { dismiss() }
+                    .buttonStyle(.borderedProminent)
+                    .tint(accent)
             }
-
-            HStack {
-                TextField(model.text("新分组名称"), text: $newGroupName)
-                    .textFieldStyle(.roundedBorder)
-                Button(model.text("创建分组")) {
-                    if let id = model.createAccountGroup(name: newGroupName) {
-                        newGroupName = ""
-                        selectGroup(id)
-                    }
-                }
-                .disabled(newGroupName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }
+            .padding(.horizontal, 30)
+            .padding(.vertical, 16)
 
             Divider()
 
-            HStack(spacing: 12) {
-                Picker(model.text("目标分组"), selection: $selectedGroupID) {
-                    Text(model.text("未分组")).tag(UUID?.none)
-                    ForEach(model.accountGroupState.groups) { group in
-                        Text(group.name).tag(Optional(group.id))
-                    }
-                }
-                .onChange(of: selectedGroupID) { _, value in loadSelection(value) }
-
-                if let selectedGroupID,
-                   let group = model.accountGroupState.groups.first(where: { $0.id == selectedGroupID }) {
-                    TextField(model.text("分组名称"), text: $editedGroupName)
-                        .textFieldStyle(.roundedBorder)
-                    Button(model.text("更新名称")) {
-                        model.renameAccountGroup(id: selectedGroupID, name: editedGroupName)
-                    }
-                    Button(model.text("删除分组"), role: .destructive) { groupToDelete = group }
-                }
-            }
-
-            if let error = model.accountGroupError {
-                Text(error).font(.callout).foregroundStyle(.red)
-            }
-
-            Text(model.text("选择要移动到此分组的账号")).font(.headline)
             ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(model.accounts) { account in
-                        Toggle(isOn: Binding(
-                            get: { selectedAccounts.contains(account.name) },
-                            set: { checked in
-                                if checked { selectedAccounts.insert(account.name) }
-                                else { selectedAccounts.remove(account.name) }
+                VStack(spacing: 14) {
+                    groupCard(title: model.text("创建分组")) {
+                        HStack(spacing: 10) {
+                            TextField(model.text("新分组名称"), text: $newGroupName)
+                                .textFieldStyle(.roundedBorder)
+                                .focused($focusedField, equals: .newGroupName)
+                            Button(model.text("创建分组")) {
+                                if let id = model.createAccountGroup(name: newGroupName) {
+                                    newGroupName = ""
+                                    selectGroup(id)
+                                }
                             }
-                        )) {
-                            Text(model.displayName(for: account.name)).lineLimit(1)
+                            .buttonStyle(.borderedProminent)
+                            .tint(accent)
+                            .disabled(newGroupName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         }
-                        .toggleStyle(.checkbox)
-                        .padding(.vertical, 7)
-                        Divider()
+                    }
+
+                    groupCard(title: model.text("编辑分组")) {
+                        VStack(spacing: 10) {
+                            HStack(spacing: 10) {
+                                Picker(model.text("目标分组"), selection: $selectedGroupID) {
+                                    ForEach(model.accountGroupState.groups) { group in
+                                        Text(group.name).tag(Optional(group.id))
+                                    }
+                                    Text(model.text("未分组")).tag(UUID?.none)
+                                }
+                                .frame(width: 180)
+                                .onChange(of: selectedGroupID) { _, value in loadSelection(value) }
+
+                                if let selectedGroupID,
+                                   let group = model.accountGroupState.groups.first(where: { $0.id == selectedGroupID }) {
+                                    TextField(model.text("分组名称"), text: $editedGroupName)
+                                        .textFieldStyle(.roundedBorder)
+                                        .focused($focusedField, equals: .editedGroupName)
+                                    Button(model.text("更新名称")) {
+                                        model.renameAccountGroup(id: selectedGroupID, name: editedGroupName)
+                                    }
+                                    Button(model.text("删除分组"), role: .destructive) { groupToDelete = group }
+                                        .buttonStyle(.bordered)
+                                        .tint(.red)
+                                } else {
+                                    Spacer()
+                                    Text(model.text("未分组是默认分类，无需编辑"))
+                                        .font(.system(size: 15))
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+
+                            if let error = model.accountGroupError {
+                                Label(error, systemImage: "exclamationmark.circle.fill")
+                                    .font(.system(size: 15))
+                                    .foregroundStyle(.red)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Text(model.text("选择要移动到此分组的账号"))
+                                .font(.headline)
+                            Spacer()
+                            Text(model.text("已选择 %d 个", selectedAccounts.count))
+                                .font(.system(size: 15))
+                                .foregroundStyle(.secondary)
+                        }
+
+                        LazyVGrid(columns: accountColumns, spacing: 10) {
+                            ForEach(model.accounts) { account in
+                                accountSelectionCard(account)
+                            }
+                        }
+                    }
+                    .padding(16)
+                    .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(.secondary.opacity(0.16), lineWidth: 1)
                     }
                 }
+                .padding(.horizontal, 30)
+                .padding(.vertical, 14)
             }
-            .frame(minHeight: 220)
 
+            Divider()
             HStack {
                 Button(model.text("全选")) { selectedAccounts = Set(model.accounts.map(\.name)) }
                 Button(model.text("清空")) { selectedAccounts.removeAll() }
+                    .disabled(selectedAccounts.isEmpty)
                 Spacer()
                 if let batchResult {
                     Label(batchResult, systemImage: "checkmark.circle.fill")
-                        .font(.callout)
+                        .font(.system(size: 15))
                         .foregroundStyle(.green)
                         .transition(.opacity)
                 }
@@ -1212,12 +1616,21 @@ private struct AccountGroupManagerSheet: View {
                     }
                 }
                 .buttonStyle(.borderedProminent)
+                .tint(accent)
                 .disabled(selectedAccounts.isEmpty)
             }
+            .padding(.horizontal, 30)
+            .padding(.vertical, 14)
+            .background(.bar)
         }
-        .padding(24)
-        .frame(width: 650, height: 540)
-        .onAppear { selectGroup(model.accountGroupState.groups.first?.id) }
+        .frame(width: 640, height: 560)
+        .onAppear {
+            selectGroup(model.accountGroupState.groups.first?.id)
+            Task { @MainActor in
+                await Task.yield()
+                focusedField = nil
+            }
+        }
         .onDisappear { batchResultTask?.cancel() }
         .alert(
             model.text("删除分组"),
@@ -1233,6 +1646,59 @@ private struct AccountGroupManagerSheet: View {
         } message: {
             Text(model.text("删除分组后，组内账号将变为未分组，账号不会被删除。"))
         }
+    }
+
+    private func groupCard<Content: View>(
+        title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title)
+                .font(.headline)
+            content()
+        }
+        .padding(14)
+        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(.secondary.opacity(0.14), lineWidth: 1)
+        }
+    }
+
+    private func accountSelectionCard(_ account: AccountUsage) -> some View {
+        let isSelected = selectedAccounts.contains(account.name)
+        let assignedGroupName = model.accountGroupState.groups
+            .first(where: { $0.id == model.groupID(for: account.name) })?.name ?? model.text("未分组")
+
+        return Button {
+            if isSelected { selectedAccounts.remove(account.name) }
+            else { selectedAccounts.insert(account.name) }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(isSelected ? accent : .secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(model.displayName(for: account.name))
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    Text(assignedGroupName)
+                        .font(.system(size: 14))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 46)
+            .background(isSelected ? accent.opacity(0.10) : Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(isSelected ? accent.opacity(0.48) : .secondary.opacity(0.14), lineWidth: 1)
+            }
+        }
+        .buttonStyle(.plain)
     }
 
     private func selectGroup(_ id: UUID?) {
@@ -1273,6 +1739,7 @@ private struct AccountDashboardRow: View {
     let usesCompactLayout: Bool
     let isRefreshing: Bool
     let isSwitching: Bool
+    let showsGroupPicker: Bool
     let refreshAction: () -> Void
     let switchAction: () -> Void
     let aliasAction: () -> Void
@@ -1307,7 +1774,7 @@ private struct AccountDashboardRow: View {
     private var wideLayout: some View {
         GeometryReader { geometry in
             let identityWidth: CGFloat = 160
-            let quotaAreaWidth = max(350, geometry.size.width - 394)
+            let quotaAreaWidth = max(350, geometry.size.width - (showsGroupPicker ? 491 : 394))
             let extraWidth = max(0, quotaAreaWidth - 350)
             let fiveHourWidth = 175 + extraWidth * 0.6
             let weeklyWidth = 175 + extraWidth * 0.4
@@ -1333,7 +1800,7 @@ private struct AccountDashboardRow: View {
                 )
                     .frame(width: weeklyWidth)
                 accountActions
-                    .frame(width: 120, alignment: .trailing)
+                    .frame(width: showsGroupPicker ? 217 : 120, alignment: .trailing)
             }
         }
         .frame(height: 34)
@@ -1371,14 +1838,18 @@ private struct AccountDashboardRow: View {
                         .frame(width: quotaWidth)
                     }
                 }
-                .frame(height: 24)
+                .frame(height: 28)
             }
         }
     }
 
     private var accountIdentity: some View {
         HStack(spacing: 6) {
-            HoverAccountName(name: displayName, identityHelp: identityHelp, font: .headline)
+            HoverAccountName(
+                name: displayName,
+                identityHelp: identityHelp,
+                font: .system(size: 16, weight: .semibold)
+            )
                 .foregroundStyle(accountNameColor)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -1436,6 +1907,29 @@ private struct AccountDashboardRow: View {
                 .hoverHint(model.text(account.authInvalid ? "重新登录后手动查询此账号" : "立即查询此账号，不等待"))
                 .disabled(isRefreshing || isSwitching)
 
+                if showsGroupPicker {
+                    Picker(
+                        model.text("更换分组"),
+                        selection: Binding(
+                            get: { model.groupID(for: account.name) },
+                            set: { model.assignAccounts([account.name], to: $0) }
+                        )
+                    ) {
+                        ForEach(model.accountGroupState.groups) { group in
+                            Text(group.name).tag(Optional(group.id))
+                        }
+                        Text(model.text("未分组")).tag(UUID?.none)
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .menuIndicator(.visible)
+                    .controlSize(.regular)
+                    .frame(width: 92)
+                    .help(model.text("更换分组"))
+                    .accessibilityLabel(model.text("更换分组"))
+                    .disabled(isSwitching)
+                }
+
                 Button { showingActions.toggle() } label: {
                     Image(systemName: "ellipsis.circle")
                         .font(.system(size: 15, weight: .light))
@@ -1483,7 +1977,7 @@ private struct AccountDashboardRow: View {
             }
             if isRecommended {
                 Button { switchAction() } label: {
-                    Text(model.text("切换")).frame(width: 44)
+                    Text(model.text("切换")).frame(minWidth: 58)
                 }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.regular)
@@ -1491,7 +1985,7 @@ private struct AccountDashboardRow: View {
                     .disabled(isSwitching)
             } else {
                 Button { switchAction() } label: {
-                    Text(model.text(isCurrent ? "使用" : "切换")).frame(width: 44)
+                    Text(model.text(isCurrent ? "使用" : "切换")).frame(minWidth: 58)
                 }
                     .buttonStyle(.bordered)
                     .controlSize(.regular)
@@ -1534,20 +2028,20 @@ private struct QuotaBar: View {
         HStack(spacing: 8) {
             if showsTitle {
                 Text(title)
-                    .font(.callout.weight(.semibold))
+                    .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(.secondary)
-                    .frame(width: 22, alignment: .leading)
+                    .frame(width: 48, alignment: .leading)
             }
             Text("\(value)%")
-                .font(.callout.bold())
+                .font(.system(size: 15, weight: .bold))
                 .foregroundStyle(color)
-                .frame(width: 35, alignment: .trailing)
+                .frame(width: 48, alignment: .trailing)
             ProgressView(value: Double(value), total: 100)
                 .tint(color)
                 .frame(width: barWidth)
                 .frame(minWidth: barWidth == nil ? 40 : nil, maxWidth: barWidth == nil ? .infinity : nil)
             Text(model.text("重置 %@", compactReset))
-                .font(.caption)
+                .font(.system(size: 14))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
@@ -1584,7 +2078,7 @@ private struct HoverAccountName: View {
                 arrowEdge: .top
             ) {
                 Text(identityHelp)
-                    .font(.callout)
+                    .font(.system(size: 15))
                     .foregroundColor(Color(nsColor: .labelColor))
                     .lineLimit(nil)
                     .lineSpacing(4)
@@ -1619,60 +2113,22 @@ private struct HoverAccountName: View {
 
 private struct InvalidAccountBadge: View {
     @EnvironmentObject private var model: AppModel
-    @State private var isPresented = false
-    @State private var dismissTask: Task<Void, Never>?
     let reauthenticateAction: () -> Void
 
     var body: some View {
-        Text(model.text("失效"))
-            .font(.caption2.weight(.semibold))
-            .foregroundStyle(.red)
-            .padding(.horizontal, 7).padding(.vertical, 3)
-            .background(.red.opacity(0.11), in: Capsule())
+        Button(model.text("重新登录"), action: reauthenticateAction)
+            .buttonStyle(.plain)
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
             .overlay {
-                Capsule()
-                    .stroke(.red.opacity(0.3), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(.red.opacity(0.75), lineWidth: 1)
             }
-            .contentShape(Capsule())
-            .handCursor()
+            .contentShape(RoundedRectangle(cornerRadius: 6))
             .fixedSize()
-            .onHover { hovering in
-                hovering ? showPopover() : scheduleDismiss()
-            }
-            .popover(isPresented: $isPresented, arrowEdge: .top) {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text(model.text("当前账号登录状态已失效，是否重新登录？"))
-                        .font(.callout)
-                    HStack {
-                        Spacer()
-                        Button(model.text("取消")) { isPresented = false }
-                        Button(model.text("重新登录")) {
-                            isPresented = false
-                            reauthenticateAction()
-                        }
-                        .buttonStyle(.borderedProminent)
-                    }
-                }
-                .padding(14)
-                .onHover { hovering in
-                    hovering ? dismissTask?.cancel() : scheduleDismiss()
-                }
-            }
-            .onDisappear { dismissTask?.cancel() }
-    }
-
-    private func showPopover() {
-        dismissTask?.cancel()
-        isPresented = true
-    }
-
-    private func scheduleDismiss() {
-        dismissTask?.cancel()
-        dismissTask = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(220))
-            guard !Task.isCancelled else { return }
-            isPresented = false
-        }
+            .help(model.text("账号登录已失效，点击重新登录"))
     }
 }
 
@@ -1720,7 +2176,7 @@ private struct HoverHintModifier: ViewModifier {
             .overlay(alignment: .top) {
                 if isVisible {
                     Text(text)
-                        .font(.caption)
+                        .font(.system(size: 14))
                         .foregroundStyle(.primary)
                         .fixedSize()
                         .padding(.horizontal, 8)

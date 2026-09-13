@@ -1,6 +1,6 @@
 import Foundation
 
-public enum TokenUsagePeriod: CaseIterable, Sendable { case fiveHours, today, currentWeek, weeklyQuotaCycle }
+public enum TokenUsagePeriod: CaseIterable, Sendable { case fiveHours, today, currentWeek, currentMonth, weeklyQuotaCycle }
 
 public struct TokenUsageTotals: Equatable, Sendable {
     public var input = 0
@@ -8,6 +8,7 @@ public struct TokenUsageTotals: Equatable, Sendable {
     public var cacheWriteInput = 0
     public var output = 0
     public var reasoningOutput = 0
+    public var autoReviewTokens = 0
     public var estimatedUSD = 0.0
     public var unpricedEvents = 0
 
@@ -166,18 +167,29 @@ public final class TokenUsageTracker: @unchecked Sendable {
 
     public func totals(events: [TokenUsageEvent], account: String, from start: Date, to end: Date = Date()) -> TokenUsageTotals {
         events.lazy.filter { $0.account == account && $0.timestamp >= start && $0.timestamp <= end }
-            .reduce(into: TokenUsageTotals()) { totals, event in
-                totals.input += event.input
-                totals.cachedInput += event.cachedInput
-                totals.cacheWriteInput += event.cacheWriteInput
-                totals.output += event.output
-                totals.reasoningOutput += event.reasoningOutput
-                if let price = ModelPricing.estimatedUSD(for: event) {
-                    totals.estimatedUSD += price
-                } else {
-                    totals.unpricedEvents += 1
-                }
-            }
+            .reduce(into: TokenUsageTotals(), addEvent)
+    }
+
+    public func totals(events: [TokenUsageEvent], from start: Date, to end: Date = Date()) -> TokenUsageTotals {
+        events.lazy.filter { $0.timestamp >= start && $0.timestamp < end }
+            .reduce(into: TokenUsageTotals(), addEvent)
+    }
+
+    private func addEvent(_ totals: inout TokenUsageTotals, _ event: TokenUsageEvent) {
+        if event.model.caseInsensitiveCompare("codex-auto-review") == .orderedSame {
+            totals.autoReviewTokens += event.input + event.output
+            return
+        }
+        totals.input += event.input
+        totals.cachedInput += event.cachedInput
+        totals.cacheWriteInput += event.cacheWriteInput
+        totals.output += event.output
+        totals.reasoningOutput += event.reasoningOutput
+        if let price = ModelPricing.estimatedUSD(for: event) {
+            totals.estimatedUSD += price
+        } else {
+            totals.unpricedEvents += 1
+        }
     }
 
     private func process(line: Data, fileKey: String, offset: UInt64, state: inout State) {

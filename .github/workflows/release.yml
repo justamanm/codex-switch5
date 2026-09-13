@@ -41,13 +41,13 @@ jobs:
       - name: Verify DMG contents
         run: |
           mount_dir="$(mktemp -d "$RUNNER_TEMP/codex-switcher-mount.XXXXXX")"
-          hdiutil attach -readonly -nobrowse -mountpoint "$mount_dir" "dist/Codex-Switcher.dmg" >/dev/null
+          hdiutil attach -readonly -nobrowse -mountpoint "$mount_dir" "dist/Codex-Switch5.dmg" >/dev/null
           trap 'hdiutil detach "$mount_dir"' EXIT
-          test -d "$mount_dir/Codex Switcher.app"
+          test -d "$mount_dir/Codex Switch5.app"
           test -L "$mount_dir/Applications"
 
       - name: Create checksum
-        run: shasum -a 256 "dist/Codex-Switcher.dmg" > "dist/Codex-Switcher.dmg.sha256"
+        run: shasum -a 256 "dist/Codex-Switch5.dmg" > "dist/Codex-Switch5.dmg.sha256"
 
       - name: Update latest tag
         if: github.ref == 'refs/heads/main'
@@ -64,13 +64,13 @@ jobs:
         run: |
           release_notes="Latest build from commit ${GITHUB_SHA}. Built at $(date -u '+%Y-%m-%d %H:%M:%S UTC')."
           if gh release view latest >/dev/null 2>&1; then
-            gh release edit latest --title "Codex Switcher Latest" --notes "$release_notes" --prerelease=false --latest=false
+            gh release edit latest --title "Codex Switch5 Latest" --notes "$release_notes" --prerelease=false --latest=false
           else
-            gh release create latest --title "Codex Switcher Latest" --notes "$release_notes" --latest=false
+            gh release create latest --title "Codex Switch5 Latest" --notes "$release_notes" --latest=false
           fi
           gh release upload latest \
-            "dist/Codex-Switcher.dmg" \
-            "dist/Codex-Switcher.dmg.sha256" \
+            "dist/Codex-Switch5.dmg" \
+            "dist/Codex-Switch5.dmg.sha256" \
             --clobber
 
       - name: Publish version release
@@ -78,11 +78,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          release_notes="Codex Switcher ${GITHUB_REF_NAME}."
+          release_notes="Codex Switch5 ${GITHUB_REF_NAME}."
           gh release create "$GITHUB_REF_NAME" \
-            "dist/Codex-Switcher.dmg" \
-            "dist/Codex-Switcher.dmg.sha256" \
-            --title "Codex Switcher ${GITHUB_REF_NAME}" \
+            "dist/Codex-Switch5.dmg" \
+            "dist/Codex-Switch5.dmg.sha256" \
+            --title "Codex Switch5 ${GITHUB_REF_NAME}" \
             --notes "$release_notes" \
             --verify-tag \
             --latest
