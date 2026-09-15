@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct CodexSwitcherApp: App {
+struct CodexSwitch5App: App {
     @StateObject private var model = AppModel()
 
     var body: some Scene {

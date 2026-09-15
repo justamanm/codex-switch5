@@ -1,6 +1,6 @@
 import AppKit
 import Charts
-import CodexSwitcherCore
+import CodexSwitch5Core
 import SwiftUI
 
 struct DashboardView: View {
@@ -8,11 +8,16 @@ struct DashboardView: View {
     @State private var showingSettings = false
     @State private var showingGroupManager = false
     @State private var showingSortManager = false
-    @State private var accountsWidth: CGFloat = 0
+    @State private var usesCompactLayout = false
+    @State private var tokenHistoryPoints: [TokenHistoryPoint] = []
+    @State private var summaryToday = TokenUsageTotals()
+    @State private var summaryWeek = TokenUsageTotals()
+    @State private var summaryMonth = TokenUsageTotals()
     @State private var selectedSection = DashboardSection.accounts
     @State private var switchHistoryCategory = SwitchHistoryCategory.account
     @State private var selectedHistoryPoint: String?
     @State private var tokenHistoryInterval = TokenHistoryInterval.day
+    @State private var tokenDetailsExpanded = false
     @State private var tokenUsageDisplay = TokenUsageDisplay.summary
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Namespace private var sectionPickerAnimation
@@ -129,27 +134,31 @@ struct DashboardView: View {
         GeometryReader { proxy in
             dashboardContent
                 .frame(width: proxy.size.width, height: proxy.size.height)
-                .onAppear { accountsWidth = proxy.size.width }
-                .onChange(of: proxy.size.width) { _, width in accountsWidth = width }
+                .onAppear { usesCompactLayout = proxy.size.width < compactLayoutBreakpoint }
+                .onChange(of: proxy.size.width < compactLayoutBreakpoint) { _, compact in usesCompactLayout = compact }
         }
         .frame(minWidth: 760, minHeight: 620)
         .background(AppStyle.background)
         .tint(accent)
-        .task { model.start() }
+        .task { model.start(); refreshStatistics() }
+        .onChange(of: model.tokenEvents) { _, _ in refreshStatistics() }
+        .onChange(of: model.accounts) { _, _ in refreshStatistics() }
+        .onChange(of: model.appLanguage) { _, _ in refreshStatistics() }
+        .onChange(of: tokenHistoryInterval) { _, _ in refreshStatistics() }
+        .onChange(of: selectedSection) { _, section in
+            if section == .tokenUsage { refreshStatistics() }
+        }
     }
 
     private var dashboardContent: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 14) {
                 pageHeader
-                if selectedSection == .accounts {
-                    accountOverview
-                }
                 if let error = model.lastError { errorCard(error) }
             }
             .padding(.horizontal, pageHorizontalPadding)
-            .padding(.top, 18)
-            .padding(.bottom, 14)
+            .padding(.top, 10)
+            .padding(.bottom, 10)
 
             Divider()
 
@@ -157,7 +166,11 @@ struct DashboardView: View {
                 switch selectedSection {
                 case .accounts:
                     ScrollView {
-                        accountsSection
+                        VStack(spacing: 20) {
+                            accountOverview
+                            Divider()
+                            accountsSection
+                        }
                             .padding(.horizontal, pageHorizontalPadding)
                             .padding(.top, 16)
                             .padding(.bottom, 36)
@@ -213,22 +226,10 @@ struct DashboardView: View {
     }
 
     private var pageHeader: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 20) {
-                headerIdentity
-                Spacer(minLength: 12)
-                sectionPicker
-                Spacer(minLength: 12)
-                headerActions
-            }
-            VStack(spacing: 14) {
-                HStack {
-                    headerIdentity
-                    Spacer()
-                    headerActions
-                }
-                sectionPicker
-            }
+        HStack(spacing: 8) {
+            headerIdentity.frame(maxWidth: .infinity, alignment: .leading)
+            sectionPicker
+            headerActions.frame(maxWidth: .infinity, alignment: .trailing)
         }
     }
 
@@ -243,7 +244,7 @@ struct DashboardView: View {
             .foregroundStyle(.secondary)
             .help(model.text("打开设置"))
             .accessibilityLabel(model.text("打开设置"))
-            Text("Switch5").font(.system(size: 15, weight: .semibold))
+            Text("Codex Switch5").font(.system(size: 15, weight: .semibold))
         }
         .fixedSize()
     }
@@ -317,38 +318,40 @@ struct DashboardView: View {
     }
 
     private var accountOverview: some View {
-        HStack(alignment: .top, spacing: 24) {
+        HStack(alignment: .center, spacing: 20) {
             overviewAccount(
                 title: model.text("正在使用"),
                 name: model.currentName.isEmpty ? model.text("未识别") : model.displayName(for: model.currentName),
                 identityHelp: model.identityHelp(for: model.currentName),
                 account: model.accounts.first { $0.name == model.currentName }
             )
-            Divider()
-            VStack(alignment: .leading, spacing: 12) {
-                if let account = model.recommendation {
-                    overviewAccount(
-                        title: model.text("推荐备用"),
-                        name: model.displayName(for: account.name),
-                        identityHelp: model.identityHelp(for: account.name),
-                        account: account
-                    )
-                    Button { model.requestSwitch(to: account.name) } label: {
-                        Label(model.text("切换到此账号"), systemImage: "arrow.left.arrow.right")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.regular)
-                    .disabled(model.isSwitching)
-                } else {
+            if let account = model.recommendation {
+                Button { model.requestSwitch(to: account.name) } label: {
+                    Label(model.text("切换"), systemImage: "arrow.right")
+                }
+                .buttonStyle(SoftAccentButtonStyle())
+                .controlSize(.large)
+                .font(.system(size: 16, weight: .semibold))
+                .disabled(model.isSwitching)
+                overviewAccount(
+                    title: model.text("推荐备用"),
+                    name: model.displayName(for: account.name),
+                    identityHelp: model.identityHelp(for: account.name),
+                    account: account
+                )
+            } else {
+                Image(systemName: "arrow.right").foregroundStyle(.secondary)
+                VStack(spacing: 5) {
                     Text(model.text("推荐备用")).foregroundStyle(.secondary)
                     Text(model.text("暂无可用账号")).font(.headline)
                     Text(model.text("请刷新额度后重试")).foregroundStyle(.secondary)
                 }
+                .frame(maxWidth: .infinity)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .fixedSize(horizontal: false, vertical: true)
-        .padding(.vertical, 14)
+        .padding(14)
+        .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 10))
     }
 
     private func overviewAccount(
@@ -357,9 +360,9 @@ struct DashboardView: View {
         identityHelp: String,
         account: AccountUsage?
     ) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .center, spacing: 5) {
             Text(title).font(.system(size: 12)).foregroundStyle(.secondary)
-            HoverAccountName(name: name, identityHelp: identityHelp, font: .system(size: 21, weight: .semibold))
+            HoverAccountName(name: name, identityHelp: identityHelp, font: .system(size: 16, weight: .semibold))
                 .lineLimit(1)
             if let account {
                 ViewThatFits(in: .horizontal) {
@@ -367,7 +370,7 @@ struct DashboardView: View {
                         overviewQuota("5 小时剩余", value: account.fiveHourRemaining)
                         overviewQuota("周额度剩余", value: account.weeklyRemaining)
                     }
-                    VStack(alignment: .leading, spacing: 5) {
+                    VStack(alignment: .center, spacing: 5) {
                         overviewQuota("5 小时剩余", value: account.fiveHourRemaining)
                         overviewQuota("周额度剩余", value: account.weeklyRemaining)
                     }
@@ -379,13 +382,13 @@ struct DashboardView: View {
                 Text(model.text("暂无额度信息")).foregroundStyle(.secondary)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity)
     }
 
     private func overviewQuota(_ title: String, value: Int) -> some View {
         HStack(spacing: 5) {
             Text(model.text(title)).foregroundStyle(.secondary)
-            Text("\(value)%").monospacedDigit()
+            Text(value < 0 ? "—" : "\(value)%").monospacedDigit()
         }
         .font(.system(size: 13))
         .fixedSize()
@@ -397,6 +400,11 @@ struct DashboardView: View {
                 Text(model.text("所有账号")).font(.system(size: 16, weight: .semibold))
                 Text(model.text("%d 个", model.accounts.count)).foregroundStyle(.secondary)
                 Spacer()
+                if let latestUpdate {
+                    Text(model.text("额度更新于 %@", latestUpdate))
+                        .font(.system(size: 12)).foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
                 Button { showingSortManager = true } label: {
                     Label(accountSortRules.isEmpty ? model.text("排序") : model.text("排序 %d", accountSortRules.count), systemImage: "arrow.up.arrow.down")
                 }
@@ -407,10 +415,6 @@ struct DashboardView: View {
                     Label(model.text("分组"), systemImage: "folder")
                 }
                 .fixedSize()
-            }
-            if let latestUpdate {
-                Text(model.text("额度更新于 %@", latestUpdate))
-                    .font(.system(size: 12)).foregroundStyle(.secondary)
             }
             if model.accounts.isEmpty {
                 ContentUnavailableView {
@@ -468,7 +472,7 @@ struct DashboardView: View {
                         aliasAction: { model.beginEditingAlias(account.name) },
                         removeAction: { model.requestRemove(account.name) },
                         reauthenticateAction: { model.prepareReauthentication(for: account.name) },
-                        allowsDragging: accountSortRules.isEmpty,
+                        allowsDragging: !model.isSwitching,
                         isBeingDragged: draggedAccountName == account.name,
                         dragChanged: { updateAccountDrag(account.name, translation: $0) },
                         dragEnded: finishAccountDrag
@@ -535,20 +539,31 @@ struct DashboardView: View {
     }
 
     private func updateAccountDrag(_ name: String, translation: CGSize) {
-        guard accountSortRules.isEmpty else { return }
-        guard let sourceFrame = accountRowFrames[name] else { return }
+        guard !model.isSwitching, let sourceFrame = accountRowFrames[name] else { return }
         if draggedAccountName == nil {
+            // 从屏幕上的顺序开始，避免退出组合排序时跳回旧顺序。
+            let visibleOrder = showsAccountGroups
+                ? groupedAccountSections.flatMap { $0.accounts.map(\.name) }
+                : sortedAccounts.map(\.name)
+            dragOrderNames = visibleOrder
+            accountSortRulesJSON = "[]"
             draggedAccountName = name
-            dragOrderNames = manuallyOrderedAccounts.map(\.name)
             dragStartFrame = sourceFrame
         }
         guard let dragStartFrame, draggedAccountName == name, var names = dragOrderNames else { return }
         dragOffset = translation
-        names.removeAll { $0 == name }
+        let peers = names.filter { candidate in
+            candidate != name && (!showsAccountGroups || model.groupID(for: candidate) == model.groupID(for: name))
+        }
+        guard !peers.isEmpty else { return }
         let centerY = dragStartFrame.midY + translation.height
-        let insertionIndex = names.firstIndex { accountRowFrames[$0]?.midY ?? .greatestFiniteMagnitude > centerY } ?? names.count
-        names.insert(name, at: insertionIndex)
-        withAnimation(.easeInOut(duration: 0.14)) {
+        names.removeAll { $0 == name }
+        let next = peers.first { (accountRowFrames[$0]?.midY ?? .greatestFiniteMagnitude) > centerY }
+        let index = next.flatMap { names.firstIndex(of: $0) }
+            ?? peers.last.flatMap { names.firstIndex(of: $0).map { $0 + 1 } }
+            ?? names.count
+        names.insert(name, at: index)
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.14)) {
             dragOrderNames = names
         }
     }
@@ -591,9 +606,7 @@ struct DashboardView: View {
         }
     }
 
-    private var usesCompactLayout: Bool {
-        accountsWidth > 0 && accountsWidth < compactLayoutBreakpoint
-    }
+
 
     private var latestUpdate: String? {
         let formatter = ISO8601DateFormatter()
@@ -704,16 +717,14 @@ struct DashboardView: View {
                         .pickerStyle(.menu).frame(width: 230)
                     }
                 }
-                Text(model.text("仅统计启用此功能后的本机记录"))
-                    .font(.system(size: 12)).foregroundStyle(.secondary)
             }
-            .padding(.horizontal, pageHorizontalPadding).padding(.vertical, 16)
+            .padding(.horizontal, pageHorizontalPadding).padding(.vertical, 8)
             Divider()
             if tokenUsageDisplay == .learning {
                 UsageLearningView()
             } else {
                 ScrollView(.vertical) {
-                    LazyVStack(spacing: 10) {
+                    LazyVStack(alignment: .leading, spacing: 14) {
                         if tokenUsageDisplay == .summary {
                             tokenUsageSummary
                                 .padding(.bottom, 2)
@@ -728,31 +739,25 @@ struct DashboardView: View {
                     .padding(.vertical, 16)
                 }
             }
-            if tokenUsageDisplay != .learning {
-                Divider()
-                HStack {
-                    Text(model.text("Token 总计不包含 codex-auto-review，其用量单独标注。金额不包含 codex-auto-review；* 表示还有其他用量无法估算。"))
-                        .font(.system(size: 14)).foregroundStyle(.secondary)
-                    Spacer()
-                }
-                .padding(.horizontal, pageHorizontalPadding).padding(.vertical, 12)
-            }
+            Divider()
+            Text(model.text(tokenUsageDisplay == .learning
+                ? "Token 来自本机 Codex 记录，额度来自本应用刷新"
+                : "仅统计启用此功能后的本机记录") + (tokenUsageDisplay == .learning ? "" : " · " + model.text("Token 总计不包含 codex-auto-review，其用量单独标注。金额不包含 codex-auto-review；* 表示还有其他用量无法估算。")))
+                .font(.system(size: 11)).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, pageHorizontalPadding).padding(.vertical, 6)
+
+
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var tokenUsageSummary: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .top, spacing: 12) {
-                tokenUsageSummaryCard(periodTitle: "今日", totals: model.tokenTotals(period: .today))
-                tokenUsageSummaryCard(periodTitle: "本周", totals: model.tokenTotals(period: .currentWeek))
-                tokenUsageSummaryCard(periodTitle: "本月", totals: model.tokenTotals(period: .currentMonth))
-            }
-            VStack(spacing: 10) {
-                tokenUsageSummaryCard(periodTitle: "今日", totals: model.tokenTotals(period: .today))
-                tokenUsageSummaryCard(periodTitle: "本周", totals: model.tokenTotals(period: .currentWeek))
-                tokenUsageSummaryCard(periodTitle: "本月", totals: model.tokenTotals(period: .currentMonth))
-            }
+        HStack(alignment: .top, spacing: 12) {
+            tokenUsageSummaryCard(periodTitle: "今日", totals: summaryToday)
+            tokenUsageSummaryCard(periodTitle: "本周", totals: summaryWeek)
+            tokenUsageSummaryCard(periodTitle: "本月", totals: summaryMonth)
         }
     }
 
@@ -776,7 +781,7 @@ struct DashboardView: View {
                 .frame(width: 230)
             }
 
-            ScrollView(.horizontal) {
+            ScrollView(.horizontal, showsIndicators: false) {
                 Chart(tokenHistoryPoints) { point in
                     BarMark(
                         x: .value(model.text("时间"), point.label),
@@ -806,6 +811,7 @@ struct DashboardView: View {
                 .chartXSelection(value: $selectedHistoryPoint)
                 .chartYScale(domain: 0...tokenHistoryChartMaximum)
                 .frame(minWidth: 1050, minHeight: 210)
+                .background(ChartMousePanSupport())
             }
             .scrollIndicators(.visible)
             HStack {
@@ -829,7 +835,15 @@ struct DashboardView: View {
         .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 10))
     }
 
-    private var tokenHistoryPoints: [TokenHistoryPoint] {
+    // 汇总与窗口尺寸无关，避免在每一帧布局中扫描全部用量记录。
+    private func refreshStatistics() {
+        summaryToday = model.tokenTotals(period: .today)
+        summaryWeek = model.tokenTotals(period: .currentWeek)
+        summaryMonth = model.tokenTotals(period: .currentMonth)
+        tokenHistoryPoints = makeTokenHistoryPoints()
+    }
+
+    private func makeTokenHistoryPoints() -> [TokenHistoryPoint] {
         let calendar = Calendar.current
         let component = tokenHistoryInterval.calendarComponent
         let now = Date()
@@ -863,23 +877,46 @@ struct DashboardView: View {
             }
             .foregroundStyle(.secondary)
             Divider()
-            DisclosureGroup(model.text("Token 明细")) {
-            VStack(alignment: .leading, spacing: 6) {
-                summaryMetric("输入", value: compactTokens(totals.input))
-                summaryMetric("缓存", value: compactTokens(totals.cachedInput))
-                summaryMetric("输出", value: compactTokens(totals.output))
-                summaryMetric("推理", value: compactTokens(totals.reasoningOutput))
-                if totals.autoReviewTokens > 0 {
-                    summaryMetric("自动审查", value: compactTokens(totals.autoReviewTokens))
-                    Text(model.text("（未计入 Token 总数）")).foregroundStyle(.secondary)
+            Button { tokenDetailsExpanded.toggle() } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: tokenDetailsExpanded ? "chevron.down" : "chevron.right")
+                        .foregroundStyle(.secondary)
+                    Text(model.text("Token 明细"))
+                    Spacer()
                 }
-                if totals.unpricedEvents > 0 {
-                    Text(model.text("还有其他用量无法估算")).foregroundStyle(.secondary)
-                }
+                .padding(.vertical, 6)
+                .contentShape(Rectangle())
             }
-            .font(.system(size: 12)).monospacedDigit()
-            }
+            .buttonStyle(.plain)
             .font(.system(size: 12))
+            .accessibilityValue(model.text(tokenDetailsExpanded ? "收起" : "展开"))
+            if tokenDetailsExpanded {
+                VStack(alignment: .leading, spacing: 14) {
+                    VStack(alignment: .leading, spacing: 5) {
+                        summaryMetric("输入", value: compactTokens(totals.input))
+                            .font(.system(size: 14, weight: .semibold))
+                        summaryMetric("缓存", value: compactTokens(totals.cachedInput))
+                            .font(.system(size: 11)).foregroundStyle(.secondary)
+                            .padding(.leading, 12)
+                    }
+                    VStack(alignment: .leading, spacing: 5) {
+                        summaryMetric("输出", value: compactTokens(totals.output))
+                            .font(.system(size: 14, weight: .semibold))
+                        summaryMetric("推理", value: compactTokens(totals.reasoningOutput))
+                            .font(.system(size: 11)).foregroundStyle(.secondary)
+                            .padding(.leading, 12)
+                    }
+                    if totals.autoReviewTokens > 0 {
+                        summaryMetric("自动审查（未计入 Token 总数）", value: compactTokens(totals.autoReviewTokens))
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                    }
+                    if totals.unpricedEvents > 0 {
+                        Text(model.text("还有其他用量无法估算"))
+                            .font(.system(size: 11)).foregroundStyle(.secondary)
+                    }
+                }
+                .monospacedDigit()
+            }
         }
         .padding(18)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -888,7 +925,7 @@ struct DashboardView: View {
 
     private func summaryMetric(_ title: String, value: String) -> some View {
         HStack {
-            Text(model.text(title)).foregroundStyle(.secondary)
+            Text(model.text(title))
             Spacer()
             Text(value).monospacedDigit()
         }
@@ -929,7 +966,16 @@ struct DashboardView: View {
             }
             .foregroundStyle(.primary)
 
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 240), alignment: .topLeading)], alignment: .leading, spacing: 22) {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 12) {
+                    Text(model.text("周期 / 总 Token")).frame(minWidth: 225, maxWidth: .infinity, alignment: .leading)
+                    Text(model.text("输入 / 缓存")).frame(minWidth: 85, maxWidth: .infinity, alignment: .leading)
+                    Text(model.text("输出 / 推理")).frame(minWidth: 80, maxWidth: .infinity, alignment: .leading)
+                    Text(model.text("自动审查")).frame(minWidth: 80, maxWidth: .infinity, alignment: .leading)
+                    Text(model.text("API 等值估算")).frame(minWidth: 95, maxWidth: .infinity, alignment: .leading)
+                }
+                .font(.system(size: 12)).foregroundStyle(.secondary).padding(.vertical, 10)
+                Divider()
                 tokenUsagePeriod(
                     title: "5h额度周期",
                     subtitle: model.fiveHourPeriodText(for: account.name) ?? model.text("暂无精确重置时间"),
@@ -945,7 +991,7 @@ struct DashboardView: View {
                 )
                 tokenUsagePeriod(title: "今天", totals: model.tokenTotals(for: account.name, period: .today))
                 tokenUsagePeriod(title: "本周", totals: model.tokenTotals(for: account.name, period: .currentWeek))
-                tokenUsagePeriod(title: "本月", totals: model.tokenTotals(for: account.name, period: .currentMonth))
+                tokenUsagePeriod(title: "本月", totals: model.tokenTotals(for: account.name, period: .currentMonth), showsSeparator: false)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 11)
@@ -968,62 +1014,60 @@ struct DashboardView: View {
         subtitle: String? = nil,
         totals: TokenUsageTotals,
         unavailable: Bool = false,
-        projection: WeeklyQuotaProjection? = nil
+        projection: WeeklyQuotaProjection? = nil,
+        showsSeparator: Bool = true
     ) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(model.text(title))
-                        .font(.system(size: 15, weight: .semibold))
-                        .fixedSize(horizontal: true, vertical: false)
-                    Spacer()
-                    if !unavailable {
-                        Text(compactTokens(totals.total))
-                            .font(.headline)
-                            .fixedSize(horizontal: true, vertical: false)
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 5) {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 8) {
+                            Text(model.text(title)).fontWeight(.medium)
+                            if !unavailable { Text(compactTokens(totals.total)).fontWeight(.semibold) }
+                        }
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(model.text(title)).fontWeight(.medium)
+                            if !unavailable { Text(compactTokens(totals.total)).fontWeight(.semibold) }
+                        }
+                    }
+                    if let subtitle {
+                        Text(subtitle.replacingOccurrences(of: "\n", with: " · ")).font(.system(size: 11)).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(model.text(title)).font(.system(size: 15, weight: .semibold))
-                    if !unavailable {
-                        Text(compactTokens(totals.total)).font(.headline)
-                    }
-                }
+                .frame(minWidth: 225, maxWidth: .infinity, alignment: .leading)
+                tokenPair(totals.input, totals.cachedInput, unavailable: unavailable)
+                    .frame(minWidth: 85, maxWidth: .infinity, alignment: .leading)
+                tokenPair(totals.output, totals.reasoningOutput, unavailable: unavailable)
+                    .frame(minWidth: 80, maxWidth: .infinity, alignment: .leading)
+                Text(unavailable ? "—" : compactTokens(totals.autoReviewTokens))
+                    .frame(minWidth: 80, maxWidth: .infinity, alignment: .leading)
+                Text(unavailable ? "—" : tablePriceText(totals))
+                    .frame(minWidth: 95, maxWidth: .infinity, alignment: .leading)
             }
-            if let subtitle {
-                Text(subtitle).foregroundStyle(.secondary).lineLimit(2)
-            }
-            if !unavailable {
-                Text(model.text("输入 %@ · 缓存 %@", compactTokens(totals.input), compactTokens(totals.cachedInput)))
-                Text(model.text("输出 %@ · 推理 %@", compactTokens(totals.output), compactTokens(totals.reasoningOutput)))
-                if totals.autoReviewTokens > 0 {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(model.text("codex-auto-review %@", compactTokens(totals.autoReviewTokens)))
-                        Text(model.text("（未计入 Token 总数）"))
-                            .font(.system(size: 12))
-                    }
-                    .foregroundStyle(.secondary)
-                }
-                Text(model.text("API 等值估算 %@", tablePriceText(totals))).foregroundStyle(.secondary)
+            .font(.system(size: 13)).monospacedDigit()
+            if title == "周额度周期", !unavailable {
                 if let projection {
                     Text(model.text(
                         projection.isPartial ? "预测 $%.2f* · %d%%用量" : "预测 $%.2f · %d%%用量",
-                        projection.estimatedFullUSD,
-                        projection.observedUsedPercent
+                        projection.estimatedFullUSD, projection.observedUsedPercent
                     ))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
-                } else if title == "周额度周期" {
+                    .font(.system(size: 12)).foregroundStyle(.secondary)
+                } else {
                     Text(model.text("周额度预测：暂无数据"))
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 12)).foregroundStyle(.secondary)
                 }
             }
         }
-        .font(.system(size: 14))
-        .padding(.horizontal, 12)
-        .fixedSize(horizontal: false, vertical: true)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 12)
+        .overlay(alignment: .bottom) { if showsSeparator { Divider() } }
+    }
+
+    private func tokenPair(_ first: Int, _ second: Int, unavailable: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(unavailable ? "—" : compactTokens(first))
+            Text(unavailable ? "—" : compactTokens(second)).foregroundStyle(.secondary)
+        }
     }
 
     private func tablePriceText(_ totals: TokenUsageTotals) -> String {
@@ -1045,10 +1089,8 @@ struct DashboardView: View {
                 .pickerStyle(.segmented)
                 .frame(width: 230)
                 Spacer()
-                Text(model.text("仅保存在本机，最多保留 500 条"))
-                    .font(.system(size: 14)).foregroundStyle(.secondary)
             }
-            .padding(.horizontal, pageHorizontalPadding).padding(.vertical, 16)
+            .padding(.horizontal, pageHorizontalPadding).padding(.vertical, 8)
             Divider()
             if filteredSwitchHistory.isEmpty {
                 ContentUnavailableView(
@@ -1064,6 +1106,8 @@ struct DashboardView: View {
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 18) {
+                        Text(model.text("仅保存在本机，最多保留 500 条"))
+                            .font(.system(size: 12)).foregroundStyle(.secondary)
                         ForEach(historyDays, id: \.self) { day in
                             Section {
                                 VStack(spacing: 0) {
@@ -1727,20 +1771,9 @@ private struct AccountDashboardRow: View {
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
             dragControl
-            if usesCompactLayout {
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(alignment: .top, spacing: 12) {
-                        accountIdentity
-                        Spacer(minLength: 8)
-                        accountActions
-                    }
-                    quotaColumns
-                }
-            } else {
-                accountIdentity.frame(width: 170, alignment: .leading)
-                quotaColumns
-                accountActions.frame(width: 144, alignment: .trailing)
-            }
+            accountIdentity.frame(width: usesCompactLayout ? 112 : 160, alignment: .leading)
+            quotaColumns
+            accountActions.frame(width: 132, alignment: .trailing)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 14)
@@ -1751,7 +1784,7 @@ private struct AccountDashboardRow: View {
     }
 
     private var quotaColumns: some View {
-        HStack(alignment: .top, spacing: 24) {
+        HStack(alignment: .top, spacing: 32) {
             QuotaBar(title: model.text("5 小时剩余"), value: account.fiveHourRemaining,
                      reset: account.fiveHourReset, isHistorical: account.authInvalid)
             QuotaBar(title: model.text("周额度剩余"), value: account.weeklyRemaining,
@@ -1781,7 +1814,7 @@ private struct AccountDashboardRow: View {
 
     private var dragControl: some View {
         DragHandle()
-            .frame(width: 14, height: 20)
+            .frame(width: 20, height: 32)
             .contentShape(Rectangle())
             .handCursor()
             .allowsHitTesting(allowsDragging)
@@ -1791,7 +1824,7 @@ private struct AccountDashboardRow: View {
                     .onChanged { dragChanged($0.translation) }
                     .onEnded { _ in dragEnded() }
             )
-            .help(model.text(allowsDragging ? "拖动排序" : "清空排序条件后可拖动"))
+            .help(model.text(allowsDragging ? "拖动以使用手动顺序（分组内排序）" : "切换进行中"))
             .accessibilityLabel(model.text("拖动排序"))
     }
 
@@ -1866,7 +1899,7 @@ private struct QuotaBar: View {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(title).font(.system(size: 12)).foregroundStyle(.secondary)
                 Spacer(minLength: 0)
-                Text("\(value)%").font(.system(size: 14, weight: .medium)).monospacedDigit()
+                Text(value < 0 ? "—" : "\(value)%").font(.system(size: 14, weight: .medium)).monospacedDigit()
                     .foregroundStyle(isHistorical ? Color.secondary : Color.primary)
             }
             GeometryReader { geometry in
@@ -1876,7 +1909,7 @@ private struct QuotaBar: View {
             }
             .frame(height: 4)
             .accessibilityHidden(true)
-            Text(model.text(isHistorical ? "上次记录 · 重置 %@" : "重置 %@", compactReset))
+            Text(value < 0 ? model.text("待查询") : model.text(isHistorical ? "上次记录 · 重置 %@" : "重置 %@", compactReset))
                 .font(.system(size: 12)).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }

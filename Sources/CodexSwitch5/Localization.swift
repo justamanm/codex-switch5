@@ -37,6 +37,12 @@ enum AppLocalization {
     }
 
     private static let english: [String: String] = [
+        "每小时平均额度按两次查询之间的时间计算，包含空闲时间；也可能包含其他设备的消耗。": "Hourly quota usage uses the time between queries, including idle time, and may include other devices.",
+        "自动审查（未计入 Token 总数）": "Auto-review (excluded from total)",
+        "统计说明": "About these statistics",
+        "周期 / 总 Token": "Period / Total Tokens",
+        "拖动以使用手动顺序（分组内排序）": "Drag to use manual order (within the group)",
+        "切换进行中": "Switch in progress",
         "今日": "Today",
         "Token 明细": "Token breakdown",
         "用量统计": "Usage",
@@ -123,6 +129,7 @@ enum AppLocalization {
         "自动查询默认每 1 分钟执行；可自定义秒或分钟。全量查询时账号之间间隔 1 秒。": "Automatic refresh runs every minute by default. You can choose seconds or minutes. Full refreshes wait one second between accounts.",
         "打开设置": "Open Settings",
         "增加账号": "Add Account",
+        "待查询": "Not yet queried",
         "刷新": "Refresh",
         "正在刷新": "Refreshing",
         "已载入 %d 个账号": "%d accounts loaded",

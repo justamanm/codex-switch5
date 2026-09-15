@@ -1,4 +1,4 @@
-import CodexSwitcherCore
+import CodexSwitch5Core
 import Foundation
 
 func checkUsageLearning() throws {

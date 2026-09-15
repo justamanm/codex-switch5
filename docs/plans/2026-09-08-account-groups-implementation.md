@@ -4,7 +4,7 @@
 
 **目标：** 修正“失效”标记位置，并实现可持久保存、批量管理、添加时选择和按组展示的账号分组功能。
 
-**实现方式：** 在核心模块新增独立的 JSON 分组存储，`AppModel` 负责把存储操作转换成界面状态，`DashboardView` 只负责分组管理和展示。分组文件保存在 `~/.codex/codex_switcher_account_groups.json`，与账号凭据完全分离。
+**实现方式：** 在核心模块新增独立的 JSON 分组存储，`AppModel` 负责把存储操作转换成界面状态，`DashboardView` 只负责分组管理和展示。分组文件保存在 `~/.codex/codex_switch5_account_groups.json`，与账号凭据完全分离。
 
 **技术：** Swift 6、SwiftUI、Foundation、XCTest、Swift Package Manager。
 
@@ -14,7 +14,7 @@
 - 删除分组只解除关系，不删除账号。
 - 添加账号取消或失败时不保存分组关系。
 - 分组功能不改变 Token 统计页排序。
-- 每次修改后构建并重启 `dist/Codex Switcher.app`，使用非全屏窗口验证。
+- 每次修改后构建并重启 `dist/Codex Switch5.app`，使用非全屏窗口验证。
 
 ---
 
@@ -22,9 +22,9 @@
 
 **文件：**
 
-- 新建：`Sources/CodexSwitcherCore/AccountGroupStore.swift`
-- 修改：`Tests/CodexSwitcherCoreTests/CodexSwitcherCoreTests.swift`
-- 修改：`Sources/CodexSwitcherCoreChecks/main.swift`
+- 新建：`Sources/CodexSwitch5Core/AccountGroupStore.swift`
+- 修改：`Tests/CodexSwitch5CoreTests/CodexSwitch5CoreTests.swift`
+- 修改：`Sources/CodexSwitch5CoreChecks/main.swift`
 
 **接口：**
 
@@ -35,17 +35,17 @@
 - 状态方法：创建、改名、删除分组和批量移动账号；统一校验空名称与重名。
 
 - [ ] 编写测试：空文件得到空状态；保存再读取保持一致；重复名称和空名称失败；批量移动后一个账号只有一个分组；删除分组后账号关系消失；无效账号关系读取后被清理。
-- [ ] 运行 `swift test --filter CodexSwitcherCoreTests`，确认新增测试先失败。
+- [ ] 运行 `swift test --filter CodexSwitch5CoreTests`，确认新增测试先失败。
 - [ ] 实现上述数据类型、校验和原子保存。
 - [ ] 在核心检查程序增加相同的关键断言。
-- [ ] 运行 `swift test` 和 `swift run CodexSwitcherCoreChecks`，确认全部通过。
+- [ ] 运行 `swift test` 和 `swift run CodexSwitch5CoreChecks`，确认全部通过。
 
 ### 任务二：接入应用状态和添加账号流程
 
 **文件：**
 
-- 修改：`Sources/CodexSwitcher/AppModel.swift`
-- 修改：`Sources/CodexSwitcher/Localization.swift`
+- 修改：`Sources/CodexSwitch5/AppModel.swift`
+- 修改：`Sources/CodexSwitch5/Localization.swift`
 
 **接口：**
 
@@ -64,7 +64,7 @@
 
 **文件：**
 
-- 修改：`Sources/CodexSwitcher/DashboardView.swift`
+- 修改：`Sources/CodexSwitch5/DashboardView.swift`
 
 **界面行为：**
 
@@ -83,7 +83,7 @@
 
 **文件：**
 
-- 修改：`Sources/CodexSwitcher/DashboardView.swift`
+- 修改：`Sources/CodexSwitch5/DashboardView.swift`
 
 **界面行为：**
 
@@ -104,8 +104,8 @@
 
 - 修改（仅在发现问题时）：上述实现文件。
 
-- [ ] 运行 `swift test`、`swift run CodexSwitcherCoreChecks` 和 `git diff --check`。
-- [ ] 运行 `./scripts/build-app.sh`，确认生成 `dist/Codex Switcher.app`。
+- [ ] 运行 `swift test`、`swift run CodexSwitch5CoreChecks` 和 `git diff --check`。
+- [ ] 运行 `./scripts/build-app.sh`，确认生成 `dist/Codex Switch5.app`。
 - [ ] 退出旧进程并启动新应用。
 - [ ] 实际验证：创建两个分组、拦截重名、改名、批量加入、从旧组移动、删除组后进入未分组。
 - [ ] 验证添加账号窗口允许选择分组和未分组；不执行真实登录以避免修改用户账号，成功保存路径由核心测试覆盖。

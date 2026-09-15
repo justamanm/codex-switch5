@@ -4,8 +4,8 @@
 
 ## 改动文件
 
-- 修改 `Sources/CodexSwitcher/DashboardView.swift`：维护临时顺序、拖动位置和浮层；删除系统拖放委托；将六点把手改为 `DragGesture`。
-- 修改 `Tests/CodexSwitcherCoreTests`（如现有排序测试结构允许）：覆盖“拖动仅在松手后保存”的顺序计算。
+- 修改 `Sources/CodexSwitch5/DashboardView.swift`：维护临时顺序、拖动位置和浮层；删除系统拖放委托；将六点把手改为 `DragGesture`。
+- 修改 `Tests/CodexSwitch5CoreTests`（如现有排序测试结构允许）：覆盖“拖动仅在松手后保存”的顺序计算。
 
 ## 步骤
 

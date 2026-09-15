@@ -4,9 +4,9 @@
 <dict>
     <key>CFBundleDevelopmentRegion</key><string>zh_CN</string>
     <key>CFBundleDisplayName</key><string>Codex Switch5</string>
-    <key>CFBundleExecutable</key><string>CodexSwitcher</string>
+    <key>CFBundleExecutable</key><string>CodexSwitch5</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
-    <key>CFBundleIdentifier</key><string>local.justaman.codex-switcher</string>
+    <key>CFBundleIdentifier</key><string>local.justaman.codex-switch5</string>
     <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
     <key>CFBundleName</key><string>Codex Switch5</string>
     <key>CFBundlePackageType</key><string>APPL</string>

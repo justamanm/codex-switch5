@@ -75,10 +75,20 @@ public struct NativeAccountService: Sendable {
 
     public func switchAccount(from current: String, to target: String) throws {
         guard current != target else { return }
-        try validateName(current); try validateName(target)
+        try validateName(target)
         let files = FileManager.default
         let active = codexDirectory.appendingPathComponent("auth.json")
         let targetArchive = codexDirectory.appendingPathComponent("auth.json.\(target)")
+        if current.isEmpty {
+            guard !files.fileExists(atPath: active.path), files.fileExists(atPath: targetArchive.path) else {
+                throw NativeAccountServiceError.invalidCredentials("当前凭据存在或目标存档缺失，已停止恢复")
+            }
+            // 先复制，保留存档；绝不覆盖未知活动凭据。
+            try files.copyItem(at: targetArchive, to: active)
+            try files.setAttributes([.posixPermissions: 0o600], ofItemAtPath: active.path)
+            return
+        }
+        try validateName(current)
         let currentArchive = codexDirectory.appendingPathComponent("auth.json.\(current)")
         guard files.fileExists(atPath: active.path), files.fileExists(atPath: targetArchive.path) else {
             throw NativeAccountServiceError.invalidCredentials("找不到当前或目标账号凭据")

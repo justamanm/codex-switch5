@@ -4,22 +4,22 @@ set -euo pipefail
 root_dir="${0:A:h:h}"
 app_path="$root_dir/dist/Codex Switch5.app"
 output_path="$root_dir/dist/Codex-Switch5.dmg"
-staging_root="$(mktemp -d /private/tmp/codex-switcher-dmg.XXXXXX)"
+staging_root="$(mktemp -d /private/tmp/codex-switch5-dmg.XXXXXX)"
 volume_root="$staging_root/Codex Switch5"
 temporary_dmg="$staging_root/Codex-Switch5.dmg"
 
 cleanup() {
-    if [[ "$staging_root" == /private/tmp/codex-switcher-dmg.* ]]; then
+    if [[ "$staging_root" == /private/tmp/codex-switch5-dmg.* ]]; then
         rm -rf "$staging_root"
     fi
 }
 trap cleanup EXIT
 
-if [[ "${CODEX_SWITCHER_SKIP_APP_BUILD:-0}" != "1" ]]; then
+if [[ "${CODEX_SWITCH5_SKIP_APP_BUILD:-0}" != "1" ]]; then
     "$root_dir/scripts/build-app.sh"
 fi
 codesign --verify --deep --strict "$app_path"
-test -x "$app_path/Contents/MacOS/CodexSwitcher"
+test -x "$app_path/Contents/MacOS/CodexSwitch5"
 test -f "$app_path/Contents/Resources/AppIcon.icns"
 
 mkdir -p "$volume_root"

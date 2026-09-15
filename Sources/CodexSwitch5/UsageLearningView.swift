@@ -1,4 +1,4 @@
-import CodexSwitcherCore
+import CodexSwitch5Core
 import SwiftUI
 
 struct UsageLearningView: View {
@@ -11,9 +11,10 @@ struct UsageLearningView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text(model.text("Token 来自本机 Codex 记录，额度来自本应用刷新"))
+                HStack(spacing: 16) {
+                    Text(model.usageLearningPeriodText())
                         .font(.system(size: 12)).foregroundStyle(.secondary)
+                    Spacer()
                     Picker(model.text("统计范围"), selection: Binding(
                         get: { model.usageLearningPeriod },
                         set: { model.updateUsageLearning(period: $0) }
@@ -23,10 +24,6 @@ struct UsageLearningView: View {
                         Text(model.text("最近 30 天")).tag(UsageLearningPeriod.lastThirtyDays)
                     }
                     .pickerStyle(.segmented).labelsHidden().frame(width: 300)
-                    Text(model.usageLearningPeriodText())
-                        .font(.system(size: 12)).foregroundStyle(.secondary)
-                    Text(model.text(summary.consumptionDays < 3 ? "正在积累观察记录" : "已有使用观察，仍需持续校准"))
-                        .font(.system(size: 12)).foregroundStyle(.secondary)
                 }
                 if let error = model.usageHistoryError {
                     Label(error, systemImage: "exclamationmark.triangle")
@@ -43,17 +40,7 @@ struct UsageLearningView: View {
                     overallSummary
                 }
                 overview
-                DisclosureGroup(model.text("这些记录能说明什么")) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(model.text("柱高表示所选时间内该小时使用的 Token 总量；柱顶数字表示其中有用量的天数。"))
-                        Text(model.text("速度包含查询之间的空闲时间，不能直接当作实际工作速度；其他设备的消耗也可能计入。"))
-                        Text(model.text("超过 30 分钟的查询间隔、查询失败、跨窗口和额度回升不用于估算。百分比取整会使短期估计波动。"))
-                        Text(model.text("实际等待时间尚无法确定，不会把没有消耗自动记成休息，也不会据此改变账号切换。"))
-                    }
-                    .font(.system(size: 13)).foregroundStyle(.secondary)
-                }
-                Text(model.text("观察值不代表实际工作时长，也不会改变账号切换。"))
-                    .font(.system(size: 12)).foregroundStyle(.secondary)
+
             }
             .padding(.horizontal, 24)
             .padding(.vertical, 16)
@@ -121,6 +108,9 @@ struct UsageLearningView: View {
                 }
             }
             .frame(height: 125, alignment: .bottom)
+            Text(model.text("柱高表示所选时间内该小时使用的 Token 总量；柱顶数字表示其中有用量的天数。"))
+                .font(.system(size: 12)).foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
             Text(model.text("按本机时区汇总所选时间内的对话用量，单位为百万 Token。"))
                 .font(.system(size: 14)).foregroundStyle(.secondary)
             if let hour = selectedHour {
@@ -153,6 +143,9 @@ struct UsageLearningView: View {
                         Text(model.text("约 %.1f%%", ratio))
                     } else { Text(model.text("数据不足")) }
                 }
+                Text(model.text("每小时平均额度按两次查询之间的时间计算，包含空闲时间；也可能包含其他设备的消耗。"))
+                    .font(.system(size: 12)).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 if summary.excludedIntervals > 0 {
                     Text(model.text("另有 %d 组额度记录因重置、回升或相隔过久，未用于计算", summary.excludedIntervals))
                         .font(.system(size: 14)).foregroundStyle(.secondary)

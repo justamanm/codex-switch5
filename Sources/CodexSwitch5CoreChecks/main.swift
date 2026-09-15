@@ -1,4 +1,4 @@
-import CodexSwitcherCore
+import CodexSwitch5Core
 import Foundation
 
 func checkAppDataMigration() throws {
@@ -7,18 +7,18 @@ func checkAppDataMigration() throws {
     let legacy = root.appendingPathComponent(".codex")
     let destination = root.appendingPathComponent("Application Support/Codex Switch5")
     try files.createDirectory(at: legacy, withIntermediateDirectories: true)
-    let history = legacy.appendingPathComponent("codex_switcher_usage_history.jsonl")
+    let history = legacy.appendingPathComponent("codex_switch5_usage_history.jsonl")
     try Data("history\n".utf8).write(to: history)
     let auth = legacy.appendingPathComponent("auth.json")
     try Data("credential".utf8).write(to: auth)
     let moved = try AppDataDirectory.migrateLegacyFiles(from: legacy, to: destination)
-    precondition(moved == ["codex_switcher_usage_history.jsonl"])
+    precondition(moved == ["codex_switch5_usage_history.jsonl"])
     precondition(!files.fileExists(atPath: history.path))
-    let migratedHistory = try Data(contentsOf: destination.appendingPathComponent("codex_switcher_usage_history.jsonl"))
+    let migratedHistory = try Data(contentsOf: destination.appendingPathComponent("codex_switch5_usage_history.jsonl"))
     let unchangedCredential = try Data(contentsOf: auth)
     precondition(migratedHistory == Data("history\n".utf8))
     precondition(unchangedCredential == Data("credential".utf8), "凭据不能迁出 .codex")
-    try Data("new history\n".utf8).write(to: destination.appendingPathComponent("codex_switcher_usage_history.jsonl"))
+    try Data("new history\n".utf8).write(to: destination.appendingPathComponent("codex_switch5_usage_history.jsonl"))
     try Data("old history\n".utf8).write(to: history)
     let skipped = try AppDataDirectory.migrateLegacyFiles(from: legacy, to: destination)
     let preservedLegacyHistory = try Data(contentsOf: history)
@@ -101,9 +101,9 @@ func checkLoginStateIsolation() throws {
     try Data("account old\n".utf8).write(to: state.appendingPathComponent(".active-auth-profile"))
 
     let session = try AccountLoginSession(directory: credentials, stateDirectory: state, account: "old")
-    precondition(files.fileExists(atPath: state.appendingPathComponent(".codex-switcher-addition-pending.json").path))
+    precondition(files.fileExists(atPath: state.appendingPathComponent(".codex-switch5-addition-pending.json").path))
     precondition(!files.fileExists(atPath: credentials.appendingPathComponent(".active-auth-profile").path))
-    precondition(!files.fileExists(atPath: credentials.appendingPathComponent(".codex-switcher-addition-pending.json").path))
+    precondition(!files.fileExists(atPath: credentials.appendingPathComponent(".codex-switch5-addition-pending.json").path))
     try session.cancel()
     let restored = try Data(contentsOf: credentials.appendingPathComponent("auth.json"))
     precondition(restored == Data("old-credential".utf8))
@@ -115,7 +115,7 @@ func checkAuthenticationStateReset() throws {
     let files = FileManager.default
     let root = files.temporaryDirectory.appendingPathComponent("authentication-state-reset-\(UUID().uuidString)")
     let usageURL = root.appendingPathComponent("data/account_usage.json")
-    let historyURL = root.appendingPathComponent("data/codex_switcher_usage_history.jsonl")
+    let historyURL = root.appendingPathComponent("data/codex_switch5_usage_history.jsonl")
     try files.createDirectory(at: usageURL.deletingLastPathComponent(), withIntermediateDirectories: true)
     let oldUsage: [String: Any] = [
         "account": [
@@ -166,7 +166,7 @@ if CommandLine.arguments.contains("--usage-learning-only") {
 }
 
 do {
-    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("codex-switcher-group-check-\(UUID().uuidString)")
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("codex-switch5-group-check-\(UUID().uuidString)")
     let store = AccountGroupStore(url: directory.appendingPathComponent("groups.json"))
     var state = AccountGroupState()
     let group = try state.createGroup(named: " 工作 ")
@@ -368,7 +368,7 @@ func checkInterruptedAdditionRecovery() throws {
         return directory
     }
     func read(_ directory: URL, _ name: String) throws -> Data { try Data(contentsOf: directory.appendingPathComponent(name)) }
-    let pendingName = ".codex-switcher-addition-pending.json"
+    let pendingName = ".codex-switch5-addition-pending.json"
 
     let beforeArchiveMove = try fixture("before-archive-move")
     try Data("{\"account\":\"old\",\"originalMarker\":\"account old\\n\"}".utf8)
@@ -623,3 +623,67 @@ func checkAccountCombinedSorting() {
 }
 checkAccountCombinedSorting()
 try checkUsageLearning()
+
+func checkStartupAccounts() throws {
+    let files = FileManager.default
+    let root = files.temporaryDirectory.appendingPathComponent("startup-accounts-\(UUID().uuidString)")
+    let directory = root.appendingPathComponent(".codex")
+    precondition(StartupAccounts(directory: directory).names.isEmpty)
+    try files.createDirectory(at: directory, withIntermediateDirectories: true)
+    func credential(_ file: String, _ id: String, _ email: String) throws {
+        let payload = try JSONSerialization.data(withJSONObject: ["email": email, "sub": id]).base64EncodedString()
+        let data = try JSONSerialization.data(withJSONObject: ["tokens": ["access_token": "test-\(id)", "account_id": id, "id_token": "x.\(payload).x"]])
+        try data.write(to: directory.appendingPathComponent(file))
+    }
+    try credential("auth.json", "a", "alice@example.test")
+    let original = try Data(contentsOf: directory.appendingPathComponent("auth.json"))
+    let fresh = StartupAccounts(directory: directory)
+    precondition(fresh.current == "alice" && fresh.names == ["alice"])
+    precondition(fresh.merging([]).first?.fiveHourRemaining == -1)
+    precondition(StartupAccounts(directory: directory, preferredNames: ["my_alias"]).current == "my_alias")
+    try original.write(to: directory.appendingPathComponent("auth.json.backup_account"))
+    try credential("auth.json.other", "b", "bob@example.test")
+    try credential("auth.json.bak", "c", "ignored@example.test")
+    try Data("broken".utf8).write(to: directory.appendingPathComponent("auth.json.broken"))
+    let reinstalled = StartupAccounts(directory: directory, preferredNames: ["other"])
+    precondition(reinstalled.current == "backup_account")
+    precondition(reinstalled.names == ["backup_account", "other"])
+    let cached = AccountUsage(name: "other", fiveHourRemaining: 42, fiveHourReset: "", weeklyRemaining: 20, weeklyReset: "", resetCards: 0, notedAt: "saved")
+    precondition(reinstalled.merging([cached]).first(where: { $0.name == "other" }) == cached)
+    try credential("auth.json", "c", "other@example.test")
+    precondition(StartupAccounts(directory: directory).current == "other_2")
+    // 仅剩存档时允许恢复；已有未知活动文件时禁止覆盖。
+    try files.moveItem(at: directory.appendingPathComponent("auth.json"), to: root.appendingPathComponent("preserved-auth"))
+    precondition(StartupAccounts(directory: directory, preferredNames: ["other"]).current == nil)
+    let service = NativeAccountService(codexDirectory: directory, usageURL: root.appendingPathComponent("usage.json"))
+    try service.switchAccount(from: "", to: "other")
+    precondition(StartupAccounts(directory: directory).current == "other")
+    do { try service.switchAccount(from: "", to: "backup_account"); preconditionFailure("不能覆盖活动凭据") } catch { }
+    let backup = try Data(contentsOf: directory.appendingPathComponent("auth.json.backup_account"))
+    precondition(backup == original, "读取及恢复过程必须保留其他账号凭据")
+    print("启动检查通过：空目录、首次登录、重装、缓存缺失、旧名称、同名账号、无效存档、仅剩存档及防覆盖。")
+}
+try checkStartupAccounts()
+
+func checkOldProductNameMigration() throws {
+    let files = FileManager.default
+    let root = files.temporaryDirectory.appendingPathComponent("switch5-name-\(UUID().uuidString)")
+    let legacy = root.appendingPathComponent("codex")
+    let destination = root.appendingPathComponent("data")
+    try files.createDirectory(at: legacy, withIntermediateDirectories: true)
+    try files.createDirectory(at: destination, withIntermediateDirectories: true)
+    let old = destination.appendingPathComponent("codex_switcher_account_groups.json")
+    try Data("preserved-groups".utf8).write(to: old)
+    let pending = legacy.appendingPathComponent(".codex-switcher-addition-pending.json")
+    try Data("pending".utf8).write(to: pending)
+    let moved = try AppDataDirectory.migrateLegacyFiles(from: legacy, to: destination)
+    precondition(moved.contains("codex_switch5_account_groups.json"))
+    precondition(moved.contains(".codex-switch5-addition-pending.json"))
+    let content = try Data(contentsOf: destination.appendingPathComponent("codex_switch5_account_groups.json"))
+    precondition(content == Data("preserved-groups".utf8))
+    try Data("conflict".utf8).write(to: old)
+    _ = try AppDataDirectory.migrateLegacyFiles(from: legacy, to: destination)
+    precondition(files.fileExists(atPath: old.path), "名称冲突必须保留旧文件")
+    print("旧名称迁移检查通过：数据目录、旧目录、待恢复操作和冲突保留。")
+}
+try checkOldProductNameMigration()

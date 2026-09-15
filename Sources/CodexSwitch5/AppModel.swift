@@ -1,5 +1,5 @@
 import AppKit
-import CodexSwitcherCore
+import CodexSwitch5Core
 import Foundation
 import SwiftUI
 
@@ -68,26 +68,26 @@ final class AppModel: ObservableObject {
     private var triggeredResetKeys: Set<String> = []
     private var usageLearningTask: Task<Void, Never>?
     private lazy var usageHistoryStore = UsageHistoryStore(
-        url: appDataDirectory.appendingPathComponent("codex_switcher_usage_history.jsonl")
+        url: appDataDirectory.appendingPathComponent("codex_switch5_usage_history.jsonl")
     )
     private lazy var tokenTracker = TokenUsageTracker(
         roots: [codexDirectory.appendingPathComponent("sessions"), codexDirectory.appendingPathComponent("archived_sessions")],
-        stateURL: appDataDirectory.appendingPathComponent("codex_switcher_token_usage.json")
+        stateURL: appDataDirectory.appendingPathComponent("codex_switch5_token_usage.json")
     )
     private lazy var switchHistoryStore = SwitchHistoryStore(
-        url: appDataDirectory.appendingPathComponent("codex_switcher_switch_history.json")
+        url: appDataDirectory.appendingPathComponent("codex_switch5_switch_history.json")
     )
     private lazy var weeklyQuotaProjectionStore = WeeklyQuotaProjectionStore(
-        url: appDataDirectory.appendingPathComponent("codex_switcher_weekly_quota_projection.json")
+        url: appDataDirectory.appendingPathComponent("codex_switch5_weekly_quota_projection.json")
     )
     private lazy var accountGroupStore = AccountGroupStore(
-        url: appDataDirectory.appendingPathComponent("codex_switcher_account_groups.json")
+        url: appDataDirectory.appendingPathComponent("codex_switch5_account_groups.json")
     )
     private var nativeAccountService: NativeAccountService {
         NativeAccountService(
             codexDirectory: codexDirectory,
             usageURL: appDataDirectory.appendingPathComponent("account_usage.json"),
-            usageHistoryURL: appDataDirectory.appendingPathComponent("codex_switcher_usage_history.jsonl")
+            usageHistoryURL: appDataDirectory.appendingPathComponent("codex_switch5_usage_history.jsonl")
         )
     }
 
@@ -98,6 +98,7 @@ final class AppModel: ObservableObject {
     }
 
     init() {
+        AppDataDirectory.migratePreferences()
         appDataDirectory = AppDataDirectory.url()
         do {
             _ = try AppDataDirectory.migrateLegacyFiles(from: codexDirectory, to: appDataDirectory)
@@ -166,6 +167,7 @@ final class AppModel: ObservableObject {
         updateUsageLearning()
         beginWeeklyQuotaProjectionIfNeeded(for: currentName)
         configureAutomaticRefresh()
+        if !accounts.isEmpty, lastError == nil { refresh() }
         if let appDataMigrationError {
             lastError = text("无法迁移应用数据：%@", appDataMigrationError)
         }
@@ -278,8 +280,11 @@ final class AppModel: ObservableObject {
 
             let usageURL = appDataDirectory.appendingPathComponent("account_usage.json")
             try nativeAccountService.restoreInvalidUsageFromHistory()
-            let knownNames = knownAccountNames()
-            accounts = try UsageStore.decode(Data(contentsOf: usageURL)).filter { knownNames.contains($0.name) }
+            let discovered = startupAccounts()
+            let knownNames = discovered.names
+            let cached = FileManager.default.fileExists(atPath: usageURL.path)
+                ? try UsageStore.decode(Data(contentsOf: usageURL)) : []
+            accounts = discovered.merging(cached)
             aliases = loadAliases()
             identities = loadIdentities(for: knownNames)
             migrateLegacyAutomaticAliasesIfNeeded()
@@ -290,6 +295,10 @@ final class AppModel: ObservableObject {
             }
             lastError = nil
         } catch {
+            let discovered = startupAccounts()
+            accounts = discovered.merging(accounts)
+            aliases = loadAliases()
+            identities = loadIdentities(for: discovered.names)
             lastError = text("无法读取账号数据：%@", error.localizedDescription)
         }
     }
@@ -513,7 +522,7 @@ final class AppModel: ObservableObject {
             if applications.allSatisfy({ $0.isTerminated }) { return }
             try await Task.sleep(for: .milliseconds(200))
         }
-        throw NSError(domain: "CodexSwitcher", code: 1, userInfo: [
+        throw NSError(domain: "CodexSwitch5", code: 1, userInfo: [
             NSLocalizedDescriptionKey: text("ChatGPT 未能关闭，请手动关闭后重试。账号文件未修改。")
         ])
     }
@@ -616,14 +625,15 @@ final class AppModel: ObservableObject {
     func confirmSwitch() {
         guard !isAddingAccount, !isSwitching, !isRefreshing, refreshingAccounts.isEmpty else { return }
         guard let account = pendingSwitchAccount else { return }
-        guard let sourceAccount = resolvedActiveAccountName() else {
+        let sourceAccount = resolvedActiveAccountName() ?? ""
+        guard !sourceAccount.isEmpty || !FileManager.default.fileExists(atPath: codexDirectory.appendingPathComponent("auth.json").path) else {
             showingSwitchConfirmation = false
             pendingSwitchAccount = nil
             lastError = text("无法根据实际凭据确认当前账号，已停止切换以避免覆盖账号文件。")
             return
         }
-        setActiveAccountState(sourceAccount)
-        currentType = "account"
+        if !sourceAccount.isEmpty { setActiveAccountState(sourceAccount) }
+        currentType = sourceAccount.isEmpty ? "" : "account"
         currentName = sourceAccount
         guard sourceAccount != account else {
             showingSwitchConfirmation = false
@@ -641,7 +651,7 @@ final class AppModel: ObservableObject {
             do {
                 refreshTokenUsage()
                 beginWeeklyQuotaProjectionIfNeeded(for: sourceAccount)
-                let sourceRefresh = await runNativeOperation(["refresh", sourceAccount])
+                let sourceRefresh = sourceAccount.isEmpty ? (code: Int32(1), output: "") : await runNativeOperation(["refresh", sourceAccount])
                 loadFromDisk()
                 refreshTokenUsage()
                 if sourceRefresh.code == 0 { finishWeeklyQuotaProjection(for: sourceAccount) }
@@ -789,7 +799,7 @@ final class AppModel: ObservableObject {
             .month(.twoDigits).day(.twoDigits)
             .hour(.twoDigits(amPM: .omitted)).minute(.twoDigits)
             .locale(appLanguage.locale)
-        return text("开始 %@\n结束 %@", start.formatted(format), reset.formatted(format))
+        return text("开始 %@\n重置 %@", start.formatted(format), reset.formatted(format))
     }
 
     private func beginWeeklyQuotaProjection(for account: String) {
@@ -1123,53 +1133,16 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// 依据实际 auth.json 和账号存档关系确认当前账号，避免只信任可能过期的偏好设置。
-    private func resolvedActiveAccountName() -> String? {
-        let files = FileManager.default
-        let activeURL = codexDirectory.appendingPathComponent("auth.json")
-        guard files.fileExists(atPath: activeURL.path) else { return nil }
-
-        var names = Set(accounts.map(\.name))
-        let usageURL = appDataDirectory.appendingPathComponent("account_usage.json")
-        if let stored = try? UsageStore.decode(Data(contentsOf: usageURL)) {
-            names.formUnion(stored.map(\.name))
-        }
-        let contents = (try? files.contentsOfDirectory(at: codexDirectory, includingPropertiesForKeys: nil)) ?? []
-        for url in contents where url.lastPathComponent.hasPrefix("auth.json.") {
-            let suffix = String(url.lastPathComponent.dropFirst("auth.json.".count))
-            if suffix != "bak" && suffix != "hub" && !suffix.hasPrefix("hub.") { names.insert(suffix) }
-        }
-        let saved = UserDefaults.standard.string(forKey: "activeSwitch5Account")
+    private func startupAccounts() -> StartupAccounts {
         let markerURL = appDataDirectory.appendingPathComponent(".active-auth-profile")
         let marker = (try? String(contentsOf: markerURL, encoding: .utf8))?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "account ", with: "")
-        if let saved, !saved.isEmpty { names.insert(saved) }
-        if let marker, !marker.isEmpty { names.insert(marker) }
-
-        let withoutArchive = names.filter {
-            !files.fileExists(atPath: codexDirectory.appendingPathComponent("auth.json.\($0)").path)
-        }
-        if withoutArchive.count == 1 { return withoutArchive.first }
-        if let marker, withoutArchive.contains(marker) { return marker }
-        if let saved, withoutArchive.contains(saved) { return saved }
-
-        guard let activeIdentity = identity(from: activeURL) else { return nil }
-        let emailPrefix = activeIdentity.email.split(separator: "@", maxSplits: 1).first.map(String.init) ?? ""
-        let identitySource = emailPrefix.isEmpty ? activeIdentity.originalName : emailPrefix
-        let identityName = identitySource.lowercased().map { character in
-            character.isLetter || character.isNumber ? String(character) : "_"
-        }.joined().trimmingCharacters(in: CharacterSet(charactersIn: "_"))
-        if !identityName.isEmpty, withoutArchive.contains(identityName) { return identityName }
-
-        // 重新登录异常中断时可能同时存在活动凭据和同账号旧存档，只按公开身份字段匹配。
-        let matchingArchives = names.filter {
-            identity(from: codexDirectory.appendingPathComponent("auth.json.\($0)")) == activeIdentity
-        }
-        if let marker, matchingArchives.contains(marker) { return marker }
-        if let saved, matchingArchives.contains(saved) { return saved }
-        return matchingArchives.count == 1 ? matchingArchives.first : nil
+        let saved = UserDefaults.standard.string(forKey: "activeSwitch5Account")
+        return StartupAccounts(directory: codexDirectory, preferredNames: [marker, saved].compactMap { $0 })
     }
+
+    private func resolvedActiveAccountName() -> String? { startupAccounts().current }
 
     private func setActiveAccountState(_ account: String) {
         UserDefaults.standard.set(account, forKey: "activeSwitch5Account")
@@ -1183,40 +1156,7 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func knownAccountNames() -> Set<String> {
-        var names = Set<String>()
-        if currentType == "account", !currentName.isEmpty { names.insert(currentName) }
-        let contents = (try? FileManager.default.contentsOfDirectory(
-            at: codexDirectory,
-            includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey]
-        )) ?? []
-        for url in contents where url.lastPathComponent.hasPrefix("auth.json.") {
-            let suffix = String(url.lastPathComponent.dropFirst("auth.json.".count))
-            if suffix != "hub" && suffix != "bak" && !suffix.hasPrefix("hub.") {
-                names.insert(suffix)
-            }
-        }
-        return names
-    }
-
-    /// 标记意外丢失时，仅依据当前 auth.json 的公开身份字段恢复账号名；不读取或输出令牌。
-    private func recoverMissingActiveProfile() -> String? {
-        let active = codexDirectory.appendingPathComponent("auth.json")
-        guard let activeIdentity = identity(from: active) else { return nil }
-
-        let names = knownAccountNames()
-        let identities = loadIdentities(for: names)
-        if let matched = identities.first(where: { $0.value == activeIdentity })?.key {
-            return matched
-        }
-
-        let emailPrefix = activeIdentity.email.split(separator: "@", maxSplits: 1).first.map(String.init) ?? ""
-        let normalized = emailPrefix.lowercased().map { character in
-            character.isLetter || character.isNumber ? String(character) : "_"
-        }.joined().trimmingCharacters(in: CharacterSet(charactersIn: "_"))
-        guard !normalized.isEmpty, !names.contains(normalized) else { return nil }
-        return normalized
-    }
+    private func knownAccountNames() -> Set<String> { startupAccounts().names }
 
     private func loadAliases() -> [String: String] {
         let url = appDataDirectory.appendingPathComponent("account_aliases.json")
