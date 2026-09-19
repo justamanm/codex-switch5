@@ -8,12 +8,15 @@
 <p align="center">
   <a href="https://github.com/justamanm/codex-switcher/releases/tag/latest"><strong>下载 macOS 版</strong></a> ·
   <a href="docs/使用说明_zh.md">使用说明</a> ·
-  <a href="README.md">English</a><br>
+  <a href="README_en.md">English</a><br>
   macOS 14+
 </p>
 
 ![Codex Switch5：当前账号、推荐账号与各账号剩余额度](docs/images/dashboard-demo-zh.png)
 <p align="center"><sub>界面示意 · 演示账号与数据 · 支持中文和英文</sub></p>
+
+![Codex Switch5：用量统计页](docs/images/usage-overview-zh.svg)
+<p align="center"><sub>用量统计页界面示意 · 今日、本周、本月 Token 与历史趋势</sub></p>
 
 ## 功能介绍
 
