@@ -64,10 +64,9 @@ jobs:
         run: |
           release_notes="Latest build from commit ${GITHUB_SHA}. Built at $(date -u '+%Y-%m-%d %H:%M:%S UTC')."
           if gh release view latest >/dev/null 2>&1; then
-            gh release edit latest --title "Codex Switch5 Latest" --notes "$release_notes" --prerelease=false --latest
-          else
-            gh release create latest --title "Codex Switch5 Latest" --notes "$release_notes" --latest
+            gh release delete latest --yes
           fi
+          gh release create latest --target "$GITHUB_SHA" --title "Codex Switch5 Latest" --notes "$release_notes" --latest
           gh release upload latest \
             "dist/Codex-Switch5.dmg" \
             "dist/Codex-Switch5.dmg.sha256" \
