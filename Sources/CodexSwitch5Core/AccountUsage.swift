@@ -8,8 +8,11 @@ public struct AccountUsage: Codable, Identifiable, Equatable, Sendable {
     public let weeklyReset: String
     public let weeklyResetAt: String?
     public let resetCards: Int
+    /// 每张可用重置卡的到期时间；接口未提供时为空。
+    public let resetCardExpirations: [String]
     public let creditBalance: Double?
     public let authInvalid: Bool
+    public let authInvalidSince: String?
     public let notedAt: String
 
     public var id: String { name }
@@ -21,8 +24,10 @@ public struct AccountUsage: Codable, Identifiable, Equatable, Sendable {
         case weeklyReset = "weekly_reset"
         case weeklyResetAt = "weekly_reset_at"
         case resetCards = "reset_cards"
+        case resetCardExpirations = "reset_card_expirations"
         case creditBalance = "credit_balance"
         case authInvalid = "auth_invalid"
+        case authInvalidSince = "auth_invalid_since"
         case notedAt = "noted_at"
     }
 
@@ -34,8 +39,10 @@ public struct AccountUsage: Codable, Identifiable, Equatable, Sendable {
         weeklyReset: String,
         weeklyResetAt: String? = nil,
         resetCards: Int,
+        resetCardExpirations: [String] = [],
         creditBalance: Double? = nil,
         authInvalid: Bool = false,
+        authInvalidSince: String? = nil,
         notedAt: String
     ) {
         self.name = name
@@ -45,8 +52,10 @@ public struct AccountUsage: Codable, Identifiable, Equatable, Sendable {
         self.weeklyReset = weeklyReset
         self.weeklyResetAt = weeklyResetAt
         self.resetCards = resetCards
+        self.resetCardExpirations = resetCardExpirations
         self.creditBalance = creditBalance
         self.authInvalid = authInvalid
+        self.authInvalidSince = authInvalid ? authInvalidSince : nil
         self.notedAt = notedAt
     }
 
@@ -59,8 +68,10 @@ public struct AccountUsage: Codable, Identifiable, Equatable, Sendable {
         weeklyReset = try container.decode(String.self, forKey: .weeklyReset)
         weeklyResetAt = try container.decodeIfPresent(String.self, forKey: .weeklyResetAt)
         resetCards = try container.decodeIfPresent(Int.self, forKey: .resetCards) ?? 0
+        resetCardExpirations = try container.decodeIfPresent([String].self, forKey: .resetCardExpirations) ?? []
         creditBalance = try container.decodeIfPresent(Double.self, forKey: .creditBalance)
         authInvalid = try container.decodeIfPresent(Bool.self, forKey: .authInvalid) ?? false
+        authInvalidSince = authInvalid ? try container.decodeIfPresent(String.self, forKey: .authInvalidSince) : nil
         notedAt = try container.decode(String.self, forKey: .notedAt)
     }
 }

@@ -146,6 +146,15 @@ func checkAuthenticationStateReset() throws {
     try service.markAuthenticationInvalid(account: "account")
     let restored = try UsageStore.decode(Data(contentsOf: usageURL)).first
     precondition(restored?.authInvalid == true)
+    precondition(restored?.authInvalidSince != nil)
+    try service.markAuthenticationInvalid(account: "account")
+    _ = try service.restoreInvalidUsageFromHistory()
+    let repeatedInvalid = try UsageStore.decode(Data(contentsOf: usageURL)).first
+    precondition(repeatedInvalid?.authInvalidSince == restored?.authInvalidSince)
+    try service.markAuthenticated(account: "account")
+    let authenticated = try UsageStore.decode(Data(contentsOf: usageURL)).first
+    precondition(authenticated?.authInvalidSince == nil)
+
     precondition(restored?.fiveHourRemaining == 76 && restored?.fiveHourReset == "2026-09-11 22:42")
     precondition(restored?.weeklyRemaining == 64 && restored?.weeklyReset == "9.15")
     precondition(restored?.weeklyResetAt != nil && restored?.resetCards == 2)
@@ -199,7 +208,7 @@ guard ClientAvailability(hasChatGPT: true, hasCodexCLI: true).accountLoginMethod
 let data = """
 {
   "current": {"five_hour_remaining": 90, "five_hour_reset": "2030-01-01 09:00", "weekly_remaining": 90, "weekly_reset": "1.2", "reset_cards": 0, "noted_at": "2026-09-05T10:00:00+08:00"},
-  "nearest": {"five_hour_remaining": 40, "five_hour_reset": "2030-01-01 10:00", "weekly_remaining": 60, "weekly_reset": "1.2", "reset_cards": 1, "noted_at": "2026-09-05T10:00:00+08:00"},
+  "nearest": {"five_hour_remaining": 40, "five_hour_reset": "2030-01-01 10:00", "weekly_remaining": 60, "weekly_reset": "1.2", "reset_cards": 1, "reset_card_expirations": ["2030-01-03T10:00:00Z"], "noted_at": "2026-09-05T10:00:00+08:00"},
   "later": {"five_hour_remaining": 50, "five_hour_reset": "2030-01-01 11:00", "weekly_remaining": 70, "weekly_reset": "1.2", "noted_at": "2026-09-05T10:00:00+08:00"},
   "invalid": {"five_hour_remaining": 100, "five_hour_reset": "2030-01-01 08:30", "weekly_remaining": 100, "weekly_reset": "1.2", "auth_invalid": true, "noted_at": "2026-09-05T10:00:00+08:00"},
   "weeklyZero": {"five_hour_remaining": 80, "five_hour_reset": "2030-01-01 09:30", "weekly_remaining": 0, "weekly_reset": "1.2", "noted_at": "2026-09-05T10:00:00+08:00"}
@@ -220,6 +229,7 @@ let result = AccountRecommender.next(
 )
 precondition(result?.name == "nearest", "没有选中最近的合格账号")
 precondition(result?.resetCards == 1, "没有解析重置卡")
+precondition(result?.resetCardExpirations == ["2030-01-03T10:00:00Z"], "没有解析重置卡到期时间")
 let rankedNames = AccountRecommender.ranked(
     from: accounts,
     currentAccount: "current",

@@ -1798,15 +1798,14 @@ private struct AccountDashboardRow: View {
             HoverAccountName(name: displayName, identityHelp: identityHelp, font: .system(size: 14, weight: .semibold))
                 .lineLimit(1)
             if account.authInvalid {
-                InvalidAccountBadge(reauthenticateAction: reauthenticateAction)
+                InvalidAccountBadge(invalidSince: account.authInvalidSince, reauthenticateAction: reauthenticateAction)
             } else if isCurrent {
                 Text(model.text("正在使用")).font(.system(size: 12)).foregroundStyle(accent)
             } else if isRecommended {
                 Text(model.text("推荐备用")).font(.system(size: 12)).foregroundStyle(.secondary)
             }
             if account.resetCards > 0 {
-                Text(model.text("重置卡 %d 张", account.resetCards))
-                    .font(.system(size: 12)).foregroundStyle(.secondary)
+                ResetCardsLabel(count: account.resetCards, expirations: account.resetCardExpirations)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1978,7 +1977,47 @@ private struct HoverAccountName: View {
     }
 }
 
+private struct ResetCardsLabel: View {
+    @EnvironmentObject private var model: AppModel
+    let count: Int
+    let expirations: [String]
+
+    private var help: String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        let isoFormatter = ISO8601DateFormatter()
+        let title = model.text("重置卡到期时间")
+        let lines = (0..<count).map { index in
+            let dateText = expirations.indices.contains(index)
+                ? expirations[index]
+                : ""
+            let displayedDate = isoFormatter.date(from: dateText).map(formatter.string) ?? model.text("到期时间未知")
+            return model.text("第 %d 张：%@", index + 1, displayedDate)
+        }
+        return ([title] + lines).joined(separator: "\n")
+    }
+
+    var body: some View {
+        Text(model.text("重置卡 %d 张", count))
+            .font(.system(size: 12))
+            .foregroundStyle(.secondary)
+            .help(help)
+    }
+}
+
 private struct InvalidAccountBadge: View {
+    let invalidSince: String?
+    private var authenticationFailureHelp: String {
+        guard let invalidSince, let date = ISO8601DateFormatter().date(from: invalidSince) else {
+            return model.text("账号登录已失效，点击重新登录")
+        }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return model.text("账号登录已失效(%@)，点击重新登录", formatter.string(from: date))
+    }
+
     @EnvironmentObject private var model: AppModel
     let reauthenticateAction: () -> Void
 
@@ -1987,7 +2026,7 @@ private struct InvalidAccountBadge: View {
             .buttonStyle(.link)
             .font(.system(size: 12))
             .fixedSize()
-            .help(model.text("账号登录已失效，点击重新登录"))
+            .help(authenticationFailureHelp)
 
     }
 }
@@ -2016,6 +2055,7 @@ private struct AccountRowFramePreferenceKey: PreferenceKey {
 
 private struct HoverHintModifier: ViewModifier {
     let text: String
+    let delay: Int
     @State private var isVisible = false
     @State private var revealTask: Task<Void, Never>?
 
@@ -2025,7 +2065,7 @@ private struct HoverHintModifier: ViewModifier {
                 revealTask?.cancel()
                 if hovering {
                     revealTask = Task { @MainActor in
-                        try? await Task.sleep(for: .milliseconds(400))
+                        try? await Task.sleep(for: .milliseconds(delay))
                         guard !Task.isCancelled else { return }
                         isVisible = true
                     }
@@ -2038,6 +2078,8 @@ private struct HoverHintModifier: ViewModifier {
                     Text(text)
                         .font(.system(size: 14))
                         .foregroundStyle(.primary)
+                        .multilineTextAlignment(.leading)
+                        .lineSpacing(2)
                         .fixedSize()
                         .padding(.horizontal, 8)
                         .padding(.vertical, 5)
@@ -2078,8 +2120,8 @@ private struct HandCursorModifier: ViewModifier {
 }
 
 private extension View {
-    func hoverHint(_ text: String) -> some View {
-        modifier(HoverHintModifier(text: text))
+    func hoverHint(_ text: String, delay: Int = 400) -> some View {
+        modifier(HoverHintModifier(text: text, delay: delay))
     }
 
     func handCursor() -> some View {
