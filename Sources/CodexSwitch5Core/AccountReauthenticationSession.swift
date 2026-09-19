@@ -104,7 +104,7 @@ public final class AccountReauthenticationSession {
     }
 
     private static func pendingURL(in directory: URL) -> URL {
-        directory.appendingPathComponent(".codex-switcher-reauthentication-pending.json")
+        directory.appendingPathComponent(".codex-switch5-reauthentication-pending.json")
     }
 
     private static func validate(_ account: String) throws {
@@ -112,6 +112,6 @@ public final class AccountReauthenticationSession {
     }
 
     private static func failure(_ message: String) -> NSError {
-        NSError(domain: "CodexSwitcher", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+        NSError(domain: "CodexSwitch5", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
     }
 }

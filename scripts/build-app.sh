@@ -1,12 +1,12 @@
 #!/bin/zsh
 set -euo pipefail
 
-export CLANG_MODULE_CACHE_PATH="${CLANG_MODULE_CACHE_PATH:-/private/tmp/codex-switcher-module-cache}"
+export CLANG_MODULE_CACHE_PATH="${CLANG_MODULE_CACHE_PATH:-/private/tmp/codex-switch5-module-cache}"
 
 root_dir="${0:A:h:h}"
 app_dir="$root_dir/dist/Codex Switch5.app"
 mkdir -p "$root_dir/dist"
-staging_root="$(mktemp -d "$root_dir/dist/.codex-switcher-build.XXXXXX")"
+staging_root="$(mktemp -d "$root_dir/dist/.codex-switch5-build.XXXXXX")"
 staging_app="$staging_root/Codex Switch5.app"
 
 cd "$root_dir"
@@ -21,20 +21,20 @@ sips -z 512 512 "$root_dir/support/AppIcon.png" --out "$root_dir/support/AppIcon
 sips -z 512 512 "$root_dir/support/AppIcon.png" --out "$root_dir/support/AppIcon.iconset/icon_512x512.png" >/dev/null
 sips -z 1024 1024 "$root_dir/support/AppIcon.png" --out "$root_dir/support/AppIcon.iconset/icon_512x512@2x.png" >/dev/null
 node "$root_dir/scripts/make-icns.mjs"
-if [[ "${CODEX_SWITCHER_SKIP_SWIFT_BUILD:-0}" != "1" ]]; then
+if [[ "${CODEX_SWITCH5_SKIP_SWIFT_BUILD:-0}" != "1" ]]; then
     swift build --disable-sandbox -c release
 fi
-binary="$(swift build --disable-sandbox -c release --show-bin-path)/CodexSwitcher"
+binary="$(swift build --disable-sandbox -c release --show-bin-path)/CodexSwitch5"
 mkdir -p "$staging_app/Contents/MacOS"
 mkdir -p "$staging_app/Contents/Resources"
-install -m 755 "$binary" "$staging_app/Contents/MacOS/CodexSwitcher"
+install -m 755 "$binary" "$staging_app/Contents/MacOS/CodexSwitch5"
 install -m 644 "$root_dir/support/Info.plist" "$staging_app/Contents/Info.plist"
 install -m 644 "$root_dir/support/PkgInfo" "$staging_app/Contents/PkgInfo"
 install -m 644 "$root_dir/support/AppIcon.icns" "$staging_app/Contents/Resources/AppIcon.icns"
 install -m 644 "$root_dir/support/AppIcon.png" "$staging_app/Contents/Resources/AppIcon.png"
 codesign --force --deep --sign - "$staging_app"
 if [[ -d "$app_dir" ]]; then
-    old_root="$(mktemp -d /private/tmp/codex-switcher-previous.XXXXXX)"
+    old_root="$(mktemp -d /private/tmp/codex-switch5-previous.XXXXXX)"
     mv "$app_dir" "$old_root/Codex Switch5.previous-bundle"
 fi
 mv "$staging_app" "$app_dir"

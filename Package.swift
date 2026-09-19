@@ -2,21 +2,21 @@
 import PackageDescription
 
 let package = Package(
-    name: "CodexSwitcher",
+    name: "CodexSwitch5",
     platforms: [.macOS(.v14)],
     products: [
-        .library(name: "CodexSwitcherCore", targets: ["CodexSwitcherCore"]),
-        .executable(name: "CodexSwitcher", targets: ["CodexSwitcher"]),
+        .library(name: "CodexSwitch5Core", targets: ["CodexSwitch5Core"]),
+        .executable(name: "CodexSwitch5", targets: ["CodexSwitch5"]),
     ],
     targets: [
-        .target(name: "CodexSwitcherCore"),
+        .target(name: "CodexSwitch5Core"),
         .executableTarget(
-            name: "CodexSwitcher",
-            dependencies: ["CodexSwitcherCore"]
+            name: "CodexSwitch5",
+            dependencies: ["CodexSwitch5Core"]
         ),
         .executableTarget(
-            name: "CodexSwitcherCoreChecks",
-            dependencies: ["CodexSwitcherCore"]
+            name: "CodexSwitch5CoreChecks",
+            dependencies: ["CodexSwitch5Core"]
         ),
     ]
 )

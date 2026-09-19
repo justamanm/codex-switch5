@@ -23,24 +23,24 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run core checks
-        run: swift run CodexSwitcherCoreChecks
+        run: swift run CodexSwitch5CoreChecks
 
       - name: Build release executable
         run: swift build --disable-sandbox -c release
 
       - name: Bundle app
         env:
-          CODEX_SWITCHER_SKIP_SWIFT_BUILD: "1"
+          CODEX_SWITCH5_SKIP_SWIFT_BUILD: "1"
         run: ./scripts/build-app.sh
 
       - name: Build DMG
         env:
-          CODEX_SWITCHER_SKIP_APP_BUILD: "1"
+          CODEX_SWITCH5_SKIP_APP_BUILD: "1"
         run: ./scripts/build-dmg.sh
 
       - name: Verify DMG contents
         run: |
-          mount_dir="$(mktemp -d "$RUNNER_TEMP/codex-switcher-mount.XXXXXX")"
+          mount_dir="$(mktemp -d "$RUNNER_TEMP/codex-switch5-mount.XXXXXX")"
           hdiutil attach -readonly -nobrowse -mountpoint "$mount_dir" "dist/Codex-Switch5.dmg" >/dev/null
           trap 'hdiutil detach "$mount_dir"' EXIT
           test -d "$mount_dir/Codex Switch5.app"

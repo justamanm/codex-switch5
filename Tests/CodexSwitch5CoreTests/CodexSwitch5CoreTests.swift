@@ -1,8 +1,8 @@
 import Foundation
 import XCTest
-@testable import CodexSwitcherCore
+@testable import CodexSwitch5Core
 
-final class CodexSwitcherCoreTests: XCTestCase {
+final class CodexSwitch5CoreTests: XCTestCase {
     func testSelectsAvailableAccountLoginMethod() {
         XCTAssertEqual(ClientAvailability(hasChatGPT: true, hasCodexCLI: true).accountLoginMethod, .chatGPT)
         XCTAssertEqual(ClientAvailability(hasChatGPT: true, hasCodexCLI: false).accountLoginMethod, .chatGPT)

@@ -1,21 +1,19 @@
-import CodexSwitcherCore
+import CodexSwitch5Core
 import SwiftUI
 
 struct UsageLearningView: View {
     @EnvironmentObject private var model: AppModel
-    private let accent = Color(red: 0.31, green: 0.57, blue: 0.39)
+    private let accent = AppStyle.accent
+    @State private var selectedHour: Int?
 
     private var summary: UsageLearningSummary { model.usageLearning }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(model.text("使用习惯")).font(.title2.bold())
-                        Text(model.text("Token 来自本机 Codex 记录，额度来自本应用刷新"))
-                            .font(.system(size: 14)).foregroundStyle(.secondary)
-                    }
+                HStack(spacing: 16) {
+                    Text(model.usageLearningPeriodText())
+                        .font(.system(size: 12)).foregroundStyle(.secondary)
                     Spacer()
                     Picker(model.text("统计范围"), selection: Binding(
                         get: { model.usageLearningPeriod },
@@ -25,15 +23,12 @@ struct UsageLearningView: View {
                         Text(model.text("本月")).tag(UsageLearningPeriod.currentMonth)
                         Text(model.text("最近 30 天")).tag(UsageLearningPeriod.lastThirtyDays)
                     }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .frame(width: 300)
+                    .pickerStyle(.segmented).labelsHidden().frame(width: 300)
                 }
                 if let error = model.usageHistoryError {
                     Label(error, systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.orange).textSelection(.enabled)
                 }
-                overview
                 if summary.sampleCount == 0 && summary.conversationCount == 0 {
                     ContentUnavailableView {
                         Label(model.text("等待首次查询"), systemImage: "clock.arrow.circlepath")
@@ -44,16 +39,10 @@ struct UsageLearningView: View {
                     hourlyDistribution
                     overallSummary
                 }
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(model.text("这些记录能说明什么")).font(.headline)
-                    Text(model.text("柱高表示所选时间内该小时使用的 Token 总量；柱顶数字表示其中有用量的天数。"))
-                    Text(model.text("速度包含查询之间的空闲时间，不能直接当作实际工作速度；其他设备的消耗也可能计入。"))
-                    Text(model.text("超过 30 分钟的查询间隔、查询失败、跨窗口和额度回升不用于估算。百分比取整会使短期估计波动。"))
-                    Text(model.text("实际等待时间尚无法确定，不会把没有消耗自动记成休息，也不会据此改变账号切换。"))
-                }
-                .font(.system(size: 14)).foregroundStyle(.secondary)
+                overview
+
             }
-            .padding(.horizontal, 28)
+            .padding(.horizontal, 24)
             .padding(.vertical, 16)
         }
         .tint(accent)
@@ -62,8 +51,7 @@ struct UsageLearningView: View {
 
     private var overview: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(model.text(summary.consumptionDays < 3 ? "正在积累观察记录" : "已有使用观察，仍需持续校准"))
-                .font(.headline)
+            Text(model.text("观察记录")).font(.headline)
             HStack(spacing: 16) {
                 metric("对话次数", value: summary.conversationCount)
                 metric("采样天数", value: summary.observedDays)
@@ -80,12 +68,12 @@ struct UsageLearningView: View {
             .font(.system(size: 14)).foregroundStyle(.secondary)
         }
         .padding(16)
-        .background(accent.opacity(0.07), in: RoundedRectangle(cornerRadius: 12))
+        .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 10))
     }
 
     private func metric(_ title: String, value: Int) -> some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text(value.formatted()).font(.title2.monospacedDigit().bold())
+            Text(value.formatted()).font(.system(size: 18, weight: .medium)).monospacedDigit()
             Text(model.text(title)).font(.system(size: 14)).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -99,6 +87,7 @@ struct UsageLearningView: View {
                 ForEach(0..<24, id: \.self) { hour in
                     let count = summary.hourlyConsumptionDays[hour]
                     let tokens = summary.hourlyTokenUsage[hour]
+                    Button { selectedHour = hour } label: {
                     VStack(spacing: 5) {
                         Text(count == 0 ? "" : "\(count)")
                             .font(.system(size: 13).monospacedDigit())
@@ -109,17 +98,28 @@ struct UsageLearningView: View {
                             .font(.system(size: 13).monospacedDigit())
                     }
                     .frame(maxWidth: .infinity)
+                    .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
                     .help(model.text("%d 点：%d 天有用量，共 %@ Token", hour, count, formattedTokens(tokens)))
                     .accessibilityElement(children: .ignore)
+                    .accessibilityAddTraits(.isButton)
                     .accessibilityLabel(model.text("%d 点：%d 天有用量，共 %@ Token", hour, count, formattedTokens(tokens)))
                 }
             }
             .frame(height: 125, alignment: .bottom)
+            Text(model.text("柱高表示所选时间内该小时使用的 Token 总量；柱顶数字表示其中有用量的天数。"))
+                .font(.system(size: 12)).foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
             Text(model.text("按本机时区汇总所选时间内的对话用量，单位为百万 Token。"))
                 .font(.system(size: 14)).foregroundStyle(.secondary)
-            Text(model.usageLearningPeriodText())
-                .font(.system(size: 14)).foregroundStyle(.secondary)
+            if let hour = selectedHour {
+                Text(model.text("%d 点：%d 天有用量，共 %@ Token", hour, summary.hourlyConsumptionDays[hour], formattedTokens(summary.hourlyTokenUsage[hour])))
+                    .font(.system(size: 12)).textSelection(.enabled)
+            }
         }
+        .padding(18)
+        .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 10))
     }
 
     private var overallSummary: some View {
@@ -143,6 +143,9 @@ struct UsageLearningView: View {
                         Text(model.text("约 %.1f%%", ratio))
                     } else { Text(model.text("数据不足")) }
                 }
+                Text(model.text("每小时平均额度按两次查询之间的时间计算，包含空闲时间；也可能包含其他设备的消耗。"))
+                    .font(.system(size: 12)).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 if summary.excludedIntervals > 0 {
                     Text(model.text("另有 %d 组额度记录因重置、回升或相隔过久，未用于计算", summary.excludedIntervals))
                         .font(.system(size: 14)).foregroundStyle(.secondary)
@@ -150,7 +153,7 @@ struct UsageLearningView: View {
             }
             .font(.system(size: 15))
             .padding(14)
-            .background(Color.secondary.opacity(0.05), in: RoundedRectangle(cornerRadius: 10))
+            .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 10))
         }
     }
 

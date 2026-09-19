@@ -41,6 +41,7 @@ public struct NativeAccountService: Sendable {
             weeklyReset: old.weeklyReset,
             weeklyResetAt: old.weeklyResetAt,
             resetCards: old.resetCards,
+            resetCardExpirations: old.resetCardExpirations,
             creditBalance: old.creditBalance,
             authInvalid: false,
             notedAt: old.notedAt
@@ -64,7 +65,7 @@ public struct NativeAccountService: Sendable {
         var restoredCount = 0
         for (account, old) in records where old.authInvalid {
             guard let retained = latestSuccessfulUsage(account: account) else { continue }
-            let restored = invalidUsage(account: account, previous: retained)
+            let restored = invalidUsage(account: account, previous: retained, firstInvalidAt: old.authInvalidSince, recordDetection: false)
             guard restored != old else { continue }
             records[account] = restored
             restoredCount += 1
@@ -75,10 +76,20 @@ public struct NativeAccountService: Sendable {
 
     public func switchAccount(from current: String, to target: String) throws {
         guard current != target else { return }
-        try validateName(current); try validateName(target)
+        try validateName(target)
         let files = FileManager.default
         let active = codexDirectory.appendingPathComponent("auth.json")
         let targetArchive = codexDirectory.appendingPathComponent("auth.json.\(target)")
+        if current.isEmpty {
+            guard !files.fileExists(atPath: active.path), files.fileExists(atPath: targetArchive.path) else {
+                throw NativeAccountServiceError.invalidCredentials("当前凭据存在或目标存档缺失，已停止恢复")
+            }
+            // 先复制，保留存档；绝不覆盖未知活动凭据。
+            try files.copyItem(at: targetArchive, to: active)
+            try files.setAttributes([.posixPermissions: 0o600], ofItemAtPath: active.path)
+            return
+        }
+        try validateName(current)
         let currentArchive = codexDirectory.appendingPathComponent("auth.json.\(current)")
         guard files.fileExists(atPath: active.path), files.fileExists(atPath: targetArchive.path) else {
             throw NativeAccountServiceError.invalidCredentials("找不到当前或目标账号凭据")
@@ -172,11 +183,7 @@ public struct NativeAccountService: Sendable {
     }
 
     private func requestUsage(account: String, accessToken: String, accountID: String?) async throws -> AccountUsage {
-        var request = URLRequest(url: URL(string: "https://chatgpt.com/backend-api/wham/usage")!)
-        request.timeoutInterval = 20
-        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        request.setValue("Codex Switch5", forHTTPHeaderField: "User-Agent")
-        if let accountID, !accountID.isEmpty { request.setValue(accountID, forHTTPHeaderField: "ChatGPT-Account-Id") }
+        let request = whamRequest(path: "usage", accessToken: accessToken, accountID: accountID)
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw NativeAccountServiceError.invalidResponse }
         guard (200..<300).contains(http.statusCode) else { throw NativeAccountServiceError.http(http.statusCode) }
@@ -196,7 +203,62 @@ public struct NativeAccountService: Sendable {
         let credits = object["rate_limit_reset_credits"] as? [String: Any]
         let balance = (object["credits"] as? [String: Any])?["balance"] as? Double
         let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.dateFormat = "yyyy-MM-dd HH:mm"
-        return AccountUsage(name: account, fiveHourRemaining: try remaining(primary), fiveHourReset: formatter.string(from: five), weeklyRemaining: try remaining(secondary), weeklyReset: "\(Calendar.current.component(.month, from: weekly)).\(Calendar.current.component(.day, from: weekly))", weeklyResetAt: ISO8601DateFormatter().string(from: weekly), resetCards: credits?["available_count"] as? Int ?? 0, creditBalance: balance, authInvalid: false, notedAt: ISO8601DateFormatter().string(from: Date()))
+        let fallbackResetCardCount = (credits?["available_count"] as? NSNumber)?.intValue ?? 0
+        let resetCardDetails = fallbackResetCardCount > 0
+            ? await requestResetCards(accessToken: accessToken, accountID: accountID)
+            : nil
+        let resetCards = resetCardDetails?.count ?? fallbackResetCardCount
+        let resetCardExpirations = resetCardDetails?.expirations ?? []
+        return AccountUsage(name: account, fiveHourRemaining: try remaining(primary), fiveHourReset: formatter.string(from: five), weeklyRemaining: try remaining(secondary), weeklyReset: "\(Calendar.current.component(.month, from: weekly)).\(Calendar.current.component(.day, from: weekly))", weeklyResetAt: ISO8601DateFormatter().string(from: weekly), resetCards: resetCards, resetCardExpirations: resetCardExpirations, creditBalance: balance, authInvalid: false, notedAt: ISO8601DateFormatter().string(from: Date()))
+    }
+
+    private func whamRequest(path: String, accessToken: String, accountID: String?) -> URLRequest {
+        var request = URLRequest(url: URL(string: "https://chatgpt.com/backend-api/wham/\(path)")!)
+        request.timeoutInterval = 20
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("Codex Switch5", forHTTPHeaderField: "User-Agent")
+        if let accountID, !accountID.isEmpty { request.setValue(accountID, forHTTPHeaderField: "ChatGPT-Account-Id") }
+        return request
+    }
+
+    /// ChatGPT 使用独立接口提供每张可用重置卡及其到期时间。
+    /// 此信息是补充显示：接口暂时不可用时，额度刷新仍使用用量接口的汇总数量。
+    private func requestResetCards(accessToken: String, accountID: String?) async -> (count: Int, expirations: [String])? {
+        do {
+            let request = whamRequest(path: "rate-limit-reset-credits", accessToken: accessToken, accountID: accountID)
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse,
+                  (200..<300).contains(http.statusCode),
+                  let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+
+            let availableCards = (object["credits"] as? [[String: Any]] ?? []).filter {
+                ($0["status"] as? String) == "available"
+            }
+            let count = (object["available_count"] as? NSNumber)?.intValue ?? availableCards.count
+            let standardFormatter = ISO8601DateFormatter()
+            let fractionalFormatter = ISO8601DateFormatter()
+            fractionalFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            let expirations = availableCards.compactMap { card -> String? in
+                let date: Date?
+                if let seconds = card["expires_at"] as? NSNumber {
+                    let value = seconds.doubleValue
+                    date = Date(timeIntervalSince1970: value > 10_000_000_000 ? value / 1_000 : value)
+                } else if let rawValue = card["expires_at"] as? String {
+                    if let seconds = Double(rawValue) {
+                        date = Date(timeIntervalSince1970: seconds > 10_000_000_000 ? seconds / 1_000 : seconds)
+                    } else {
+                        date = fractionalFormatter.date(from: rawValue) ?? standardFormatter.date(from: rawValue)
+                    }
+                } else {
+                    date = nil
+                }
+                guard let date else { return nil }
+                return standardFormatter.string(from: date)
+            }.sorted()
+            return (max(0, count), expirations)
+        } catch {
+            return nil
+        }
     }
 
     private func refreshToken(_ token: String) async throws -> [String: Any] {
@@ -219,7 +281,8 @@ public struct NativeAccountService: Sendable {
         })
         try atomicJSON(object, to: usageURL, permissions: 0o600)
     }
-    private func invalidUsage(account: String, previous: AccountUsage?) -> AccountUsage {
+    private func invalidUsage(account: String, previous: AccountUsage?, firstInvalidAt: String? = nil, recordDetection: Bool = true) -> AccountUsage {
+        let invalidSince = firstInvalidAt ?? previous?.authInvalidSince ?? (recordDetection ? ISO8601DateFormatter().string(from: Date()) : nil)
         let retained = previous.flatMap { $0.authInvalid ? latestSuccessfulUsage(account: account) : $0 }
             ?? latestSuccessfulUsage(account: account)
         if let retained {
@@ -231,13 +294,15 @@ public struct NativeAccountService: Sendable {
                 weeklyReset: retained.weeklyReset,
                 weeklyResetAt: retained.weeklyResetAt,
                 resetCards: retained.resetCards,
+                resetCardExpirations: previous?.resetCardExpirations ?? retained.resetCardExpirations,
                 creditBalance: retained.creditBalance,
                 authInvalid: true,
+                authInvalidSince: invalidSince,
                 notedAt: retained.notedAt
             )
         }
         let now = Date(); let formatter = DateFormatter(); formatter.dateFormat = "yyyy-MM-dd HH:mm"
-        return AccountUsage(name: account, fiveHourRemaining: 0, fiveHourReset: formatter.string(from: now), weeklyRemaining: 0, weeklyReset: "\(Calendar.current.component(.month, from: now)).\(Calendar.current.component(.day, from: now))", resetCards: 0, authInvalid: true, notedAt: ISO8601DateFormatter().string(from: now))
+        return AccountUsage(name: account, fiveHourRemaining: 0, fiveHourReset: formatter.string(from: now), weeklyRemaining: 0, weeklyReset: "\(Calendar.current.component(.month, from: now)).\(Calendar.current.component(.day, from: now))", resetCards: 0, authInvalid: true, authInvalidSince: invalidSince, notedAt: ISO8601DateFormatter().string(from: now))
     }
 
     private func latestSuccessfulUsage(account: String) -> AccountUsage? {

@@ -2,65 +2,61 @@
   <img src="docs/images/app-icon.png" width="96" align="middle" alt="Codex Switch5 icon"> Codex Switch5
 </h1>
 
+<p align="center"><strong>Manage Codex accounts on your Mac. Check remaining quota. Switch quickly.</strong></p>
+<p align="center">See 5-hour and weekly quota at a glance, with Token usage for each account.</p>
+
 <p align="center">
-  v0.2 · English · <a href="README_zh.md">中文</a>
+  <a href="https://github.com/justamanm/codex-switcher/releases/tag/latest"><strong>Download for macOS</strong></a> ·
+  <a href="docs/使用说明.md">User guide</a> ·
+  <a href="README_zh.md">中文</a><br>
+  macOS 14+
 </p>
 
-## Overview
+![Codex Switch5: active account, recommended account, and remaining quota](docs/images/dashboard-demo.png)
+<p align="center"><sub>Interface illustration · Demo accounts and data · Chinese and English supported</sub></p>
 
-Codex Switch5 is a macOS app for managing multiple Codex accounts. Its main purpose is to make several Plus and Team accounts manageable when their 5-hour limits are reached quickly. It also provides per-account Token statistics and estimates the value represented by a full weekly quota.
+## Features
 
-Account information and credentials stay on your Mac. The app does not display identity tokens.
+### Manage and switch accounts
 
-## Download
+- **Automatic discovery**: Find locally signed-in accounts and supported credential archives at startup, without importing each one manually.
+- **Quick switching**: Compare the active and recommended accounts side by side, or choose another account from the list.
+- **Account organization**: Use aliases and groups, drag to reorder, sort by quota, and sign in again when credentials expire.
 
-Download the latest version from [Releases](https://github.com/justamanm/codex-switcher/releases), open the DMG, and drag Codex Switch5 into the Applications folder. Development builds are available from the [rolling latest release](https://github.com/justamanm/codex-switcher/releases/tag/latest).
+### See remaining quota
 
-The current build uses an ad hoc signature. On first launch, control-click the app and choose **Open**. If macOS still blocks it, open **System Settings → Privacy & Security** and choose **Open Anyway**.
+- View each account’s **5-hour quota, weekly quota, and reset times** together.
+- Refresh all accounts, refresh one account, or enable automatic refresh at a chosen interval.
+- Identify the active account, recommended account, and accounts requiring sign-in at a glance.
 
-![Codex Switch5 dashboard](docs/images/dashboard-overview-en.png)
+### Usage and history
 
-## Primary purpose: manage multiple Plus and Team accounts
+- **Overview**: See today’s, this week’s, and this month’s Token totals, with input and output highlighted in the breakdown.
+- **Per-account details**: Compare 5-hour and weekly quota cycles alongside daily, weekly, and monthly usage.
+- **Trends and habits**: Browse daily, weekly, and monthly history, and hourly patterns for this week, this month, or the last 30 days.
+- **Switch history**: Review the results of account switches and sign-in operations.
 
-Once a Plus or Team account reaches its 5-hour limit, its available usage can run out quickly. Rotating between several accounts can ease this problem, but account management becomes tedious: every switch may require another manual sign-in, remaining usage is easy to forget, and each account can have a different reset time.
+Cached, reasoning, and auto-review usage are labeled separately; auto-review is excluded from Token totals. Cost and weekly quota projections use API-equivalent pricing, not your subscription bill.
 
-Codex Switch5 saves and manages these accounts automatically. Its dashboard shows the active account, 5-hour and weekly usage, and reset times. It recommends the next account based on current availability and supports one-click switching, reducing repeated sign-ins and manual comparisons.
+## Get started
 
-## Secondary purpose: Token statistics and quota value estimates
+1. **Install**: Download the DMG and drag Codex Switch5 into Applications.
+2. **Add accounts**: Open the app to automatically discover locally signed-in accounts. Click **Add account** and follow the sign-in steps to add more.
+3. **Check and switch**: Review remaining quota, then choose the recommendation or another account. If you use Codex CLI, exit its sessions before switching and reopen them afterward.
 
-The Token Usage page shows each account's usage for its 5-hour cycle, weekly quota cycle, today, and the current week. It includes input, cached input, output, and reasoning Tokens.
+Adding accounts requires ChatGPT or Codex CLI to be installed. Switching existing accounts does not require ChatGPT.
 
-Using recorded Token usage and quota changes, the app also estimates the approximate value represented by a full weekly quota. This uses OpenAI API-equivalent pricing to show usage scale; it is not the actual bill for a Plus or Team subscription.
+<details>
+<summary>macOS won't open the app?</summary>
 
-## Usage history and patterns
+Current builds use an ad hoc signature. After verifying that your download comes from this project, check **System Settings → Privacy & Security** for **Open Anyway** and follow the system prompts.
 
-The **Token Usage → Usage patterns** page can switch between this week, this month, and the last 30 days. Bar height shows total Token usage for each hour of the day, while the number above each bar shows how many days contained usage in that hour. The page combines records from all accounts to show the average hourly decrease in the 5-hour quota and the percentage of weekly quota corresponding to one full 5-hour quota.
+</details>
 
-Usage history starts accumulating after this feature is enabled, so two ranges can temporarily show the same result when all available records fall inside both ranges. The page displays the actual start and end dates. Quota refreshes may include idle time between samples, and usage on other devices may also affect the result, so these values describe observed changes rather than exact working time.
+## Data and details
 
-## Other features
+Credentials and statistics are stored on your Mac. Quota queries connect to OpenAI services. Token statistics come from local Codex session records.
 
-- Add accounts through a guided flow, then save and identify them automatically.
-- Create manual groups, which is useful for keeping related Team accounts together.
-- Combine sorting rules for weekly reset time, weekly quota, 5-hour reset time, and 5-hour quota, or return to manual ordering.
-- Assign aliases and clearly identify the active or expired accounts.
-- Refresh all accounts together or update one account immediately.
-- Automatically refresh an account after its usage resets.
-- View the number of reset cards available to each account.
-- Keep existing data visible if one account fails to refresh.
-- Manage accounts that are no longer needed.
-- Use Chinese or English, or follow the macOS system language.
+Deleting only the Codex Switch5 app preserves your existing local account credentials and does not disrupt ChatGPT or Codex sign-in or use. App settings and statistics also remain; uninstalling does not automatically restore the account used before switching. See the [user guide](docs/使用说明.md) for file locations, sign-in behavior, and how statistics are calculated.
 
-## How to use it
-
-Open the app to see the current account, the recommended next account, and the usage status of every account. You can use the recommendation or select another account from the list.
-
-When adding an account, the app uses ChatGPT when it is installed. If only Codex CLI is available, it asks you to run `codex login` in Terminal and detects the new account after sign-in. If you cancel, it restores the account that was active before you started.
-
-## Usage notes
-
-- Adding an account requires either ChatGPT or Codex CLI. If neither is installed, Codex Switch5 stops before changing any account files.
-- When Codex CLI is installed, exit its running sessions before switching or adding an account, then reopen it when prompted.
-- Existing accounts can still be switched without ChatGPT installed; automatic ChatGPT reopening is skipped.
-- Keep Codex Switch5 open while adding an account so it can complete sign-in or restore the previous account after cancellation.
-- Account information and credentials stay on your Mac. The app does not display identity tokens.
+[Report an issue](https://github.com/justamanm/codex-switcher/issues) · [Other releases](https://github.com/justamanm/codex-switcher/releases)

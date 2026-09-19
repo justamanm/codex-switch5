@@ -8,10 +8,10 @@
 
 ## 执行步骤
 
-- [x] 新增 `Sources/CodexSwitcherCore/UsageHistoryStore.swift`：定义查询、失败和切换记录；采用 JSONL 追加保存；不重复保存相同查询；损坏记录显式报错，保留原文件。
-- [x] 新增 `Sources/CodexSwitcherCore/UsageLearning.swift`：按账号分别计算；剔除跨重置、额度回升、过长间隔和失败中断的样本；按小时分配观察到的消耗；分别报告样本数、覆盖天数、速度与实测周额度换算。
-- [x] 修改 `Sources/CodexSwitcher/AppModel.swift`：统一捕捉应用发起的额度查询；过期缓存不记成新查询；记录失败和切换；将独立的历史错误与学习摘要提供给界面。
-- [x] 新增 `Sources/CodexSwitcher/UsageLearningView.swift` 并接入仪表盘：展示观察时间分布、账号统计与数据不足提示；明确不是实际工作时长或等待时间。
+- [x] 新增 `Sources/CodexSwitch5Core/UsageHistoryStore.swift`：定义查询、失败和切换记录；采用 JSONL 追加保存；不重复保存相同查询；损坏记录显式报错，保留原文件。
+- [x] 新增 `Sources/CodexSwitch5Core/UsageLearning.swift`：按账号分别计算；剔除跨重置、额度回升、过长间隔和失败中断的样本；按小时分配观察到的消耗；分别报告样本数、覆盖天数、速度与实测周额度换算。
+- [x] 修改 `Sources/CodexSwitch5/AppModel.swift`：统一捕捉应用发起的额度查询；过期缓存不记成新查询；记录失败和切换；将独立的历史错误与学习摘要提供给界面。
+- [x] 新增 `Sources/CodexSwitch5/UsageLearningView.swift` 并接入仪表盘：展示观察时间分布、账号统计与数据不足提示；明确不是实际工作时长或等待时间。
 - [x] 添加针对重置、查询间隔、跨账号、失败、取整、重复数据和文件损坏的检查；构建应用并检查交付的应用界面。
 - [x] 补充中文说明，记录改动量与验证结果。
 

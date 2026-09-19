@@ -101,7 +101,7 @@ public final class AccountLoginSession {
         try FileManager.default.removeItem(at: pendingURL(in: stateDirectory))
     }
 
-    private static func pendingURL(in directory: URL) -> URL { directory.appendingPathComponent(".codex-switcher-addition-pending.json") }
+    private static func pendingURL(in directory: URL) -> URL { directory.appendingPathComponent(".codex-switch5-addition-pending.json") }
 
     private static func writePending(_ record: PendingAddition, to url: URL) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -113,5 +113,5 @@ public final class AccountLoginSession {
         guard !account.isEmpty, !account.contains("/"), account != ".", account != ".." else { throw failure("账号名称无效。") }
     }
 
-    private static func failure(_ message: String) -> NSError { NSError(domain: "CodexSwitcher", code: 1, userInfo: [NSLocalizedDescriptionKey: message]) }
+    private static func failure(_ message: String) -> NSError { NSError(domain: "CodexSwitch5", code: 1, userInfo: [NSLocalizedDescriptionKey: message]) }
 }
