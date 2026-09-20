@@ -63,9 +63,9 @@
 
 仅删除 Codex Switch5 应用，会保留原有的本地账号凭据，不会因此影响 ChatGPT／Codex 的登录和使用。本应用的设置与统计记录也会保留；卸载不会自动恢复到切换前的账号。文件位置、登录流程及统计口径见[使用说明](docs/使用说明_zh.md)。
 
-## Community
+## 社区
 
-This project takes part in and endorses the [LINUX DO](https://linux.do/) community.
+本项目参与并支持 [LINUX DO](https://linux.do/) 社区。
 
 ## 许可证
 
