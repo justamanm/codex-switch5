@@ -117,7 +117,7 @@ Codex Switch5 用于在 Mac 上管理和切换 Codex 账号、查看剩余额度
 
 “切换记录”可分别查看账号操作与分组变更。账号切换、添加或重新登录后，可以在这里回看结果。
 
-点击左上角齿轮打开设置，可选择中文或英文，并启用自动刷新、设置刷新间隔。自动刷新用于更新额度，不代表自动切换账号。
+点击左上角齿轮打开设置，可选择中文或英文，并启用自动刷新、设置刷新间隔。自动刷新最短为 1 分钟，用于更新额度，不代表自动切换账号。
 
 ## 常见问题
 
@@ -151,7 +151,7 @@ Token 来自本机 Codex 会话记录；额度来自本应用的查询。登录�
 
 “使用习惯”可查看本周、本月和最近 30 天。柱高表示该小时累计 Token，柱顶数字表示有用量的天数。额度观察只使用同账号的有效查询间隔，排除超过 30 分钟、查询失败、跨重置和额度回升等情况。查询间隔包含空闲，其他设备也可能消耗额度，因此观察值不代表实际工作时长。
 
-应用查询额度时记录结果，原始历史追加保存；损坏时停止追加并提示，不覆盖原文件。额度观察需要逐步积累；不同时间范围包含相同现有记录时，结果可能相同。已有本机会话可用于重新生成 Token 统计，不能将首次安装等同于没有历史用量。
+额度查询结果和单次 Token 用量记录保存在本地 SQLite 数据库。最近 90 天保留明细；更早的 Token 明细转为每日汇总，额度观察转为每日摘要。已有本机会话可用于重新生成 Token 统计，不能将首次安装等同于没有历史用量。
 
 ## 本地文件与数据保存
 
@@ -197,8 +197,10 @@ Token 来自本机 Codex 会话记录；额度来自本应用的查询。登录�
 | `account_aliases.json` | 本应用生成：账号别名 |
 | `codex_switch5_account_groups.json` | 本应用生成：分组与账号所属分组 |
 | `.active-auth-profile` | 本应用生成：当前账号名称标记 |
-| `codex_switch5_usage_history.jsonl` | 本应用生成：额度查询、账号变更等历史事件 |
-| `codex_switch5_token_usage.json` | 本应用生成：Token 统计、读取进度等状态 |
+| `codex_switch5.sqlite3` | 本应用主数据库：单次 Token 用量记录、读取进度、额度历史与长期汇总 |
+| `codex_switch5.sqlite3-wal`、`codex_switch5.sqlite3-shm` | SQLite 运行期间可能出现的辅助文件 |
+| `codex_switch5_usage_history.jsonl` | 一次性导入源，导入后作为备份保留，不再写入新记录 |
+| `codex_switch5_token_usage.json` | 一次性导入源，导入后作为备份保留，不再写入新记录 |
 | `codex_switch5_token_usage.pre-timeline-backup.json` | 本应用旧版迁移备份；不一定存在 |
 | `codex_switch5_switch_history.json` | 本应用生成：切换、登录等操作记录 |
 | `codex_switch5_weekly_quota_projection.json` | 本应用生成：周额度估算数据 |

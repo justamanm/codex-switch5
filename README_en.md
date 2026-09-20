@@ -29,7 +29,8 @@
 ### See remaining quota
 
 - View each account’s **5-hour quota, weekly quota, and reset times** together.
-- Refresh all accounts, refresh one account, or enable automatic refresh at a chosen interval.
+- Refresh all accounts, refresh one account, or enable automatic refresh with a minimum one-minute interval.
+- Store usage details and quota history in a local SQLite database, reducing details older than 90 days to daily summaries for sustainable long-term use.
 - Identify the active account, recommended account, and accounts requiring sign-in at a glance.
 
 ### Usage and history
