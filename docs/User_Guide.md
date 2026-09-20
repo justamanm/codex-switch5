@@ -13,6 +13,7 @@ Updated: September 20, 2026.
 - [Troubleshooting](#troubleshooting)
 - [Uninstall](#uninstall)
 - [Statistics sources and calculations](#statistics-sources-and-calculations)
+- [Security and privacy](#security-and-privacy)
 - [Local files and data storage](#local-files-and-data-storage)
 
 ## Install and open for the first time
@@ -165,6 +166,20 @@ Tokens come from local Codex session records; quota comes from app queries. Cred
 Usage habits supports this week, this month, and the last 30 days. Bar height shows cumulative Tokens for an hour; labels count days with usage. Quota observations use valid intervals for the same account, excluding gaps over 30 minutes, failed queries, resets, and quota increases. Query intervals include idle time, and other devices can consume quota, so observations do not represent actual working hours.
 
 Quota query results and individual Token-usage records are stored in the local SQLite database. Detailed records from the latest 90 days are retained; older Token details are reduced to daily totals, while older quota observations are reduced to daily summaries. Existing local sessions can rebuild Token statistics, so first installation does not imply zero historical usage.
+
+## Security and privacy
+
+Switch5 reads Codex credentials, account archives, and session records locally to identify accounts, switch accounts, and count Tokens. The following files and contents are not uploaded:
+
+- `auth.json`, account archives, and complete credential files.
+- Session contents in `sessions/` and `archived_sessions/`.
+- The Switch5 statistics database, quota history, aliases, groups, and switch history.
+
+Switch5 is not a fully offline app. Quota and reset-card queries use the access token and account identifier to authenticate with ChatGPT services. If the access token expires, the refresh token is sent to the OpenAI authentication service to obtain updated tokens. These requests send only the data required for authentication and quota queries; the local files and session contents listed above are not uploaded.
+
+Switch5 does not send local files to third-party analytics or tracking services. Account addition and sign-in are completed by ChatGPT or Codex CLI, whose network activity is handled by those applications.
+
+For the exact file operations performed in `~/.codex/`, see [How Switch5 uses `~/.codex/`](#how-switch5-uses-codex).
 
 ## Local files and data storage
 
