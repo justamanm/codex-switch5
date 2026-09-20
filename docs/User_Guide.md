@@ -85,12 +85,14 @@ The account list shows **remaining 5-hour quota, remaining weekly quota, and the
 | Refresh all accounts | Refresh at the top right |
 | Refresh one account | Refresh icon beside that account |
 | Give an account a recognizable name | Account’s “…” menu → alias action |
+| Add or edit an account note | Note icon beside the account name; an existing note is filled in automatically |
+| Delete an account note | Open the note editor, clear the text, and save |
 | Change an account’s group | “…” → change-group action |
 | Create or manage groups | Groups above the list → group manager |
 | Display accounts by group | Groups → grouped display option |
 | Reorder manually | Drag the handle on the left of an account; restore manual sorting in Sort first if needed |
 | Sort by rules | Sort above the list |
-| View account information | “…” → account-information action |
+| View account information and note | Hover over the account name |
 
 Removing an account through the “…” menu moves its credentials to Trash after confirmation. **It does not merely hide the list entry.** This is different from uninstalling Switch5.
 
@@ -173,7 +175,7 @@ Switch5 reads Codex credentials, account archives, and session records locally t
 
 - `auth.json`, account archives, and complete credential files.
 - Session contents in `sessions/` and `archived_sessions/`.
-- The Switch5 statistics database, quota history, aliases, groups, and switch history.
+- The Switch5 statistics database, quota history, aliases, notes, groups, and switch history.
 
 Switch5 is not a fully offline app. Quota and reset-card queries use the access token and account identifier to authenticate with ChatGPT services. If the access token expires, the refresh token is sent to the OpenAI authentication service to obtain updated tokens. These requests send only the data required for authentication and quota queries; the local files and session contents listed above are not uploaded.
 
@@ -237,6 +239,7 @@ Directory: `~/Library/Application Support/Codex Switch5/`.
 | --- | --- |
 | `account_usage.json` | App-generated: most recent account quota queries |
 | `account_aliases.json` | App-generated: account aliases |
+| `account_notes.json` | App-generated: account notes, stored only in this app data directory |
 | `codex_switch5_account_groups.json` | App-generated: groups and account assignments |
 | `.active-auth-profile` | App-generated: current account-name marker |
 | `codex_switch5.sqlite3` | Main app database: individual Token-usage records, reading progress, quota history, and long-term summaries |
