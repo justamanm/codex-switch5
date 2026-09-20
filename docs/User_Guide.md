@@ -23,7 +23,7 @@ Updated: September 20, 2026.
 
 The first quota query may take a moment. “—” means quota data is not yet available, not that your quota is zero.
 
-Current builds use an ad hoc signature. If macOS blocks the app, verify that the download comes from this project, then check System Settings → Privacy & Security for Open Anyway and follow the prompts.
+The downloaded app uses an ad hoc signature. If macOS blocks it, verify that the download comes from this project, then check System Settings → Privacy & Security for Open Anyway and follow the prompts.
 
 ## Add and switch accounts
 
@@ -106,7 +106,7 @@ Removing an account through the “…” menu moves its credentials to Trash af
 
 Automatic refresh schedules the next round after the current round finishes, so quota queries do not overlap. Temporary network failures, HTTP 429, and server errors are retried up to twice. A failed account does not discard successful results from other accounts or erase its last valid quota.
 
-If sign-in expires, the app keeps the last valid quota, reset-card count, and known reset-card expiration times, and marks the account for sign-in again. Automatic refresh skips accounts already marked this way. A manual refresh can try the account again; after sign-in becomes valid and the reset-card details are retrieved successfully, the saved expiration times are updated. An explicit response of zero reset cards clears the saved expiration times.
+If sign-in expires, the app keeps the last valid quota, reset-card count, and known reset-card expiration times, and marks the account for sign-in again. Automatic refresh skips accounts already marked this way. A manual refresh can try the account again; after sign-in becomes valid and the reset-card details are retrieved successfully, the saved expiration times are updated. Saved expiration times are cleared only when the service confirms that there are no reset cards.
 
 ## View usage statistics
 
@@ -172,19 +172,19 @@ Quota query results and individual Token-usage records are stored in the local S
 
 The app discovers accounts in `~/.codex/`, then reads its own quota, grouping, and history data. The application and user data are stored separately; deleting the `.app` does not clear account data.
 
-### Operations within `~/.codex/`
+### How Switch5 uses `~/.codex/`
 
-`~/.codex/` is the existing Codex data directory that Switch5 accesses, so it is the main security boundary users should understand. Switch5 stores its own quota, grouping, settings, and statistics in `~/Library/Application Support/Codex Switch5/`, outside the Codex session directory.
+Your Codex credentials and local session records are stored in `~/.codex/`. Switch5 reads this directory to discover accounts and count Tokens, but it does not rewrite, move, or delete your session records. Switch5 stores its own quota, grouping, settings, and statistics in `~/Library/Application Support/Codex Switch5/`, outside the Codex session directory.
 
-| Situation | What Switch5 does in `~/.codex/` |
+| When you do this | What Switch5 does |
 | --- | --- |
 | Launch, account discovery, and Token statistics | Reads `auth.json`, account archives, `sessions/`, and `archived_sessions/` without modifying session contents |
 | Quota query | Reads the relevant credential and connects to OpenAI services. Credential and local session files are not uploaded. If an access token has expired and refresh succeeds, the updated tokens are written back to the same credential file |
 | Account switch | Renames credential files between `auth.json` and `auth.json.<account-name>`. The switch logic does not rewrite credential contents and attempts to restore the original file state if switching fails |
 | Add account or sign in again | Archives and restores existing credentials. The new `auth.json` is created by the ChatGPT or Codex CLI sign-in flow. A replaced account archive may be removed after the operation succeeds |
-| Remove account | Moves the corresponding `auth.json.<account-name>` to Trash after user confirmation |
+| Remove account | Moves the corresponding `auth.json.<account-name>` to Trash after you confirm |
 
-Switch5 does not rewrite, move, or delete session records in `sessions/` or `archived_sessions/`. Credential files are not uploaded as files; quota queries use the access token they contain for authentication.
+Your credential and local session files are not uploaded as files. When checking quota, Switch5 uses only the access token in the credential for authentication.
 
 ### Original Codex directories and files
 
@@ -196,9 +196,9 @@ Directory: `~/.codex/`.
 | `sessions/` | Codex’s original session records | Reads Token usage without moving original sessions |
 | `archived_sessions/` | Codex’s original archived sessions | Reads Token usage without moving original sessions |
 
-Although `auth.json` belongs to Codex, Switch5 modifies it; access is not read-only. Other Codex files, such as `config.toml`, are not private Switch5 data and should not be moved merely to reset Switch5.
+Although `auth.json` belongs to Codex, Switch5 uses it in the situations listed above. Do not move other Codex files, such as `config.toml`, when resetting Switch5.
 
-Account discovery currently uses the fixed `~/.codex/` path, regardless of `CODEX_HOME`. API-key-only files, unparseable files, or files without `tokens.access_token` are not displayed as supported signed-in accounts.
+Switch5 looks for accounts only in the current macOS user’s `~/.codex/` directory and does not follow a custom `CODEX_HOME`. An account does not appear in the list if its file contains only an API key, cannot be read, or lacks `tokens.access_token`.
 
 ### Codex credential archives and temporary switching files
 
@@ -210,7 +210,7 @@ These also reside in `~/.codex/`. Account archives still contain Codex credentia
 | `.codex-switch5-auth-<UUID>` | Temporarily holds active credentials during switching |
 | `.codex-switch5-stale-<UUID>` | Temporarily holds an older archive during switching |
 
-A filename alone does not prove that Switch5 created an archive. `auth.json.bak`, `auth.json.hub`, and `auth.json.hub.*` are excluded from discovery and should not be treated as Switch5 account entries.
+A filename alone does not prove that Switch5 created an archive. `auth.json.bak`, `auth.json.hub`, and `auth.json.hub.*` do not appear in the Switch5 account list.
 
 Temporary credentials normally exist only during an operation. If files remain after an abnormal exit, check sign-in recovery status before deleting them.
 
@@ -242,7 +242,7 @@ Managed by macOS for this app. It stores:
 - Statistics sorting options.
 - Current account name.
 
-macOS caches preferences, so direct file edits may not take effect immediately. Use the system preferences interface to manage them.
+macOS caches preferences, so editing this file directly may not take effect immediately. Change these options in Switch5 settings.
 
 ### What removal deletes
 
