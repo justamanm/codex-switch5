@@ -7,7 +7,7 @@
 
 <p align="center">
   <a href="https://github.com/justamanm/codex-switcher/releases/tag/latest"><strong>Download for macOS</strong></a> ·
-  <a href="docs/使用说明.md">User guide</a> ·
+  <a href="docs/User_Guide.md">User guide</a> ·
   <a href="README.md">中文</a><br>
   macOS 14+
 </p>
@@ -61,6 +61,6 @@ Current builds use an ad hoc signature. After verifying that your download comes
 
 Credentials and statistics are stored on your Mac. Quota queries connect to OpenAI services. Token statistics come from local Codex session records.
 
-Deleting only the Codex Switch5 app preserves your existing local account credentials and does not disrupt ChatGPT or Codex sign-in or use. App settings and statistics also remain; uninstalling does not automatically restore the account used before switching. See the [user guide](docs/使用说明.md) for file locations, sign-in behavior, and how statistics are calculated.
+Deleting only the Codex Switch5 app preserves your existing local account credentials and does not disrupt ChatGPT or Codex sign-in or use. App settings and statistics also remain; uninstalling does not automatically restore the account used before switching. See the [user guide](docs/User_Guide.md) for file locations, sign-in behavior, and how statistics are calculated.
 
 [Report an issue](https://github.com/justamanm/codex-switcher/issues) · [Other releases](https://github.com/justamanm/codex-switcher/releases)

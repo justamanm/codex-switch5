@@ -2,7 +2,7 @@
 
 Codex Switch5 manages and switches Codex accounts on your Mac, shows remaining quota, and summarizes local Token usage. Start with installation if you are new to the app, or jump to the final section to find data files.
 
-Updated: September 15, 2026.
+Updated: September 20, 2026.
 
 - [Install and open for the first time](#install-and-open-for-the-first-time)
 - [Add and switch accounts](#add-and-switch-accounts)
@@ -93,6 +93,21 @@ The account list shows **remaining 5-hour quota, remaining weekly quota, and the
 
 Removing an account through the “…” menu moves its credentials to Trash after confirmation. **It does not merely hide the list entry.** This is different from uninstalling Switch5.
 
+### Quota refresh rules
+
+| Trigger | Accounts queried | Network request |
+| --- | --- | --- |
+| App launch | The app first shows locally cached data, then refreshes all discovered accounts in the background | Yes |
+| Refresh at the top right | All discovered accounts, up to three at a time | Yes |
+| Refresh beside an account | Only that account | Yes |
+| Automatic refresh | All accounts whose sign-in is not already marked as expired; minimum interval is one minute | Yes |
+| Known 5-hour quota reset | The corresponding valid account, while Switch5 remains running | Yes |
+| Automatic refresh disabled | Local Token records are scanned every five minutes; this timer does not query quota | No |
+
+Automatic refresh schedules the next round after the current round finishes, so quota queries do not overlap. Temporary network failures, HTTP 429, and server errors are retried up to twice. A failed account does not discard successful results from other accounts or erase its last valid quota.
+
+If sign-in expires, the app keeps the last valid quota, reset-card count, and known reset-card expiration times, and marks the account for sign-in again. Automatic refresh skips accounts already marked this way. A manual refresh can try the account again; after sign-in becomes valid and the reset-card details are retrieved successfully, the saved expiration times are updated. An explicit response of zero reset cards clears the old expiration times.
+
 ## View usage statistics
 
 Open Usage at the top, then choose a page below it.
@@ -117,7 +132,7 @@ These are summaries of existing records, not work-time tracking. They do not sch
 
 History separates account operations from group changes. Review results after switching, adding, or signing in to an account again.
 
-Open settings with the gear at the top left to choose Chinese or English, enable automatic refresh, and set its interval. The minimum interval is one minute. Automatic refresh updates quota; it does not automatically switch accounts. When automatic refresh is enabled, Token statistics update with each quota query. When disabled, the app scans only new local Token records every five minutes without querying quota over the network.
+Open settings with the gear at the top left to choose Chinese or English, enable automatic refresh, and set its interval. Automatic refresh updates quota; it does not automatically switch accounts. See [Quota refresh rules](#quota-refresh-rules) for the full behavior. When automatic refresh is enabled, Token statistics update with each quota query. When disabled, the app scans only new local Token records every five minutes without using that timer to query quota over the network.
 
 ## Troubleshooting
 
