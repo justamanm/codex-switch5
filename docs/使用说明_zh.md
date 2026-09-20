@@ -174,17 +174,17 @@ Token 来自本机 Codex 会话记录；额度来自本应用的查询。登录�
 
 ### Switch5 会如何使用 `~/.codex/`
 
-你的 Codex 登录凭据和本机会话记录保存在 `~/.codex/`。Switch5 会从这里识别账号并统计 Token，但不会改写、移动或删除你的会话记录。Switch5 自己的额度、分组、设置和统计记录保存在 `~/Library/Application Support/Codex Switch5/`，不会写入 Codex 会话目录。
+Codex 登录凭据和本机会话记录保存在 `~/.codex/`。Switch5 会从这里识别账号并统计 Token，但不会改写、移动或删除会话记录。Switch5 自己的额度、分组、设置和统计记录保存在 `~/Library/Application Support/Codex Switch5/`，不会写入 Codex 会话目录。
 
-| 当你进行以下操作时 | Switch5 会做什么 |
+| 操作 | Switch5 会做什么 |
 | --- | --- |
 | 启动、识别账号、查看 Token 统计 | 只读取 `auth.json`、账号存档及 `sessions/`、`archived_sessions/`；不会修改会话内容 |
 | 查询额度 | 读取对应凭据并连接 OpenAI 服务；不会上传凭据文件或本机会话文件。访问令牌失效且刷新成功时，会把更新后的令牌写回同一个凭据文件 |
 | 切换账号 | 在 `auth.json` 与 `auth.json.<账号名>` 之间重命名凭据文件；切换逻辑不改写凭据内容，并在失败时尽量恢复原文件状态 |
 | 增加账号或重新登录 | 归档和恢复现有凭据；新的 `auth.json` 由 ChatGPT 或 Codex CLI 登录流程生成。操作成功后可能清理被替换的账号存档 |
-| 移除账号 | 经你确认后，将对应的 `auth.json.<账号名>` 移到废纸篓 |
+| 移除账号 | 确认后，将对应的 `auth.json.<账号名>` 移到废纸篓 |
 
-你的凭据文件和本机会话文件不会作为文件上传。查询额度时，Switch5 只使用凭据中的访问令牌完成身份验证。
+凭据文件和本机会话文件不会作为文件上传。查询额度时，Switch5 只使用凭据中的访问令牌完成身份验证。
 
 ### Codex 原有目录与文件
 

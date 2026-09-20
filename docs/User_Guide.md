@@ -1,6 +1,6 @@
 # Codex Switch5 User Guide
 
-Codex Switch5 manages and switches Codex accounts on your Mac, shows remaining quota, and summarizes local Token usage. Start with installation if you are new to the app, or jump to the final section to find data files.
+Codex Switch5 manages and switches Codex accounts on macOS, shows remaining quota, and summarizes local Token usage. The installation section explains how to get started, while the final section lists local data files.
 
 Updated: September 20, 2026.
 
@@ -21,7 +21,7 @@ Updated: September 20, 2026.
 2. Open the DMG, drag Codex Switch5 into Applications, then launch it from Applications.
 3. The app automatically discovers locally signed-in accounts and supported account archives. Existing accounts appear on the Accounts page. If there are none, click Add account.
 
-The first quota query may take a moment. “—” means quota data is not yet available, not that your quota is zero.
+The first quota query may take a moment. “—” means quota data is not yet available; it does not mean that the quota is zero.
 
 The downloaded app uses an ad hoc signature. If macOS blocks it, verify that the download comes from this project, then check System Settings → Privacy & Security for Open Anyway and follow the prompts.
 
@@ -30,7 +30,7 @@ The downloaded app uses an ad hoc signature. If macOS blocks it, verify that the
 ### Add another account
 
 1. Click Add account at the top right.
-2. Follow the dialog. Depending on installed software, the app opens a sign-in entry point or asks you to run `codex login`.
+2. Follow the dialog. Depending on installed software, the app opens a sign-in entry point or displays instructions to run `codex login`.
 3. Sign in to the intended account and wait for the app to recognize and save it. Keep Switch5 running throughout sign-in.
 
 Adding accounts requires ChatGPT or Codex CLI. If neither is installed, the app stops before changing account files. Switching existing accounts does not require ChatGPT.
@@ -43,21 +43,21 @@ To stop, use Cancel in the dialog and wait for the original account to be restor
 2. Click Switch in the center, or beside another account in the list.
 3. Follow the confirmation dialog and verify that the intended account is marked as active.
 
-If you use Codex CLI, exit relevant sessions before switching or adding accounts, then reopen them afterward so they pick up the new credentials. The recommendation is a convenient option; you can choose another account yourself.
+When using Codex CLI, exit relevant sessions before switching or adding accounts, then reopen them afterward so they pick up the new credentials. The recommendation is optional; any available account can be selected.
 
 ### Expired sign-in
 
-When an account requires sign-in again, use its sign-in action and follow the prompts. Keep Switch5 running; if you cancel, wait for restoration to finish.
+When an account requires sign-in again, use its sign-in action and follow the prompts. Keep Switch5 running; after cancellation, wait for restoration to finish.
 
 ## When to keep the app running
 
-**After a switch completes, you can quit Switch5 and continue using ChatGPT or Codex CLI.** Switch5 does not need to run as an intermediary. Quitting does not undo a completed switch. For CLI use, reopen sessions after switching.
+**After a switch completes, Switch5 can be quit while ChatGPT or Codex CLI continues running.** Switch5 does not need to run as an intermediary. Quitting does not undo a completed switch. For CLI use, reopen sessions after switching.
 
 | Situation | Keep Switch5 running? | Why |
 | --- | --- | --- |
 | Adding an account or signing in again | Yes | The app waits for sign-in, verifies identity, and saves the account |
 | Switching accounts or restoring the original account after cancellation | Yes | Wait for completion to avoid interrupting credential saving or recovery |
-| Switch completed; you only want to use ChatGPT or Codex CLI | No | Credentials have been saved locally and the client can operate independently |
+| Switch completed; only ChatGPT or Codex CLI remains in use | No | Credentials have been saved locally and the client can operate independently |
 | Automatic quota updates and ongoing quota observations | Yes, with automatic refresh enabled | Queries stop after quitting; changes during that gap cannot be fully reconstructed later |
 | Detecting expired sign-in promptly | Quota queries must run | Expiry is recorded when a failure is detected, not at the actual server-side expiry time; the app cannot detect failures while closed |
 
@@ -79,7 +79,7 @@ Manually replacing credentials, running a login command independently, or using 
 
 The account list shows **remaining 5-hour quota, remaining weekly quota, and their reset times** together. Percentages show what remains. Refresh data marked as a previous record before relying on it.
 
-| What you want to do | Where to go |
+| Task | Where to go |
 | --- | --- |
 | Refresh all accounts | Refresh at the top right |
 | Refresh one account | Refresh icon beside that account |
@@ -154,11 +154,11 @@ If the issue persists, [report it](https://github.com/justamanm/codex-switch5/is
 
 Moving only Codex Switch5 to Trash preserves existing local account credentials and does not disrupt ChatGPT or Codex sign-in or use. It does not switch back to the previously used account. App settings and statistics also remain and can be read after reinstalling.
 
-Third-party uninstallers may remove additional files depending on what you select. See [Local files and data storage](#local-files-and-data-storage) for file ownership and deletion effects.
+Third-party uninstallers may remove additional files depending on the selected items. See [Local files and data storage](#local-files-and-data-storage) for file ownership and deletion effects.
 
 ## Statistics sources and calculations
 
-Statistics cover today, this week, this month, and per-account cycles. Input and output are primary; cached and reasoning Tokens are supplementary. Auto-review usage is shown separately and excluded from Token totals and costs. An asterisk means some additional usage cannot be priced. Costs and full-week quota projections use API-equivalent pricing, not your subscription bill.
+Statistics cover today, this week, this month, and per-account cycles. Input and output are primary; cached and reasoning Tokens are supplementary. Auto-review usage is shown separately and excluded from Token totals and costs. An asterisk means some additional usage cannot be priced. Costs and full-week quota projections use API-equivalent pricing, not the subscription bill.
 
 Tokens come from local Codex session records; quota comes from app queries. Credentials and statistics are stored locally, but querying quota and refreshing login tokens require connections to OpenAI services.
 
@@ -174,17 +174,17 @@ The app discovers accounts in `~/.codex/`, then reads its own quota, grouping, a
 
 ### How Switch5 uses `~/.codex/`
 
-Your Codex credentials and local session records are stored in `~/.codex/`. Switch5 reads this directory to discover accounts and count Tokens, but it does not rewrite, move, or delete your session records. Switch5 stores its own quota, grouping, settings, and statistics in `~/Library/Application Support/Codex Switch5/`, outside the Codex session directory.
+Codex credentials and local session records are stored in `~/.codex/`. Switch5 reads this directory to discover accounts and count Tokens, but it does not rewrite, move, or delete session records. Switch5 stores its own quota, grouping, settings, and statistics in `~/Library/Application Support/Codex Switch5/`, outside the Codex session directory.
 
-| When you do this | What Switch5 does |
+| Action | What Switch5 does |
 | --- | --- |
 | Launch, account discovery, and Token statistics | Reads `auth.json`, account archives, `sessions/`, and `archived_sessions/` without modifying session contents |
 | Quota query | Reads the relevant credential and connects to OpenAI services. Credential and local session files are not uploaded. If an access token has expired and refresh succeeds, the updated tokens are written back to the same credential file |
 | Account switch | Renames credential files between `auth.json` and `auth.json.<account-name>`. The switch logic does not rewrite credential contents and attempts to restore the original file state if switching fails |
 | Add account or sign in again | Archives and restores existing credentials. The new `auth.json` is created by the ChatGPT or Codex CLI sign-in flow. A replaced account archive may be removed after the operation succeeds |
-| Remove account | Moves the corresponding `auth.json.<account-name>` to Trash after you confirm |
+| Remove account | Moves the corresponding `auth.json.<account-name>` to Trash after confirmation |
 
-Your credential and local session files are not uploaded as files. When checking quota, Switch5 uses only the access token in the credential for authentication.
+Credential and local session files are not uploaded as files. When checking quota, Switch5 uses only the access token in the credential for authentication.
 
 ### Original Codex directories and files
 
