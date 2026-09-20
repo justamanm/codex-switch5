@@ -59,6 +59,37 @@ func checkAppDataMigration() throws {
 }
 try checkAppDataMigration()
 
+func checkAccountNoteStore() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("account-note-store-\(UUID().uuidString)")
+    let url = root.appendingPathComponent("account_notes.json")
+    let store = AccountNoteStore(url: url)
+
+    let initialNotes = try store.load()
+    precondition(initialNotes.isEmpty)
+    try store.save(["account-a": "主要账号"])
+    let firstNotes = try store.load()
+    precondition(firstNotes == ["account-a": "主要账号"])
+    try store.save(["account-a": "工作账号", "account-b": "备用"])
+    let updatedNotes = try store.load()
+    precondition(updatedNotes["account-a"] == "工作账号")
+    try store.save([:])
+    let clearedNotes = try store.load()
+    precondition(clearedNotes.isEmpty)
+
+    let permissions = try FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as? NSNumber
+    precondition(permissions?.intValue == 0o600, "备注文件必须仅允许当前用户读写")
+
+    try Data("broken".utf8).write(to: url)
+    do {
+        _ = try store.load()
+        preconditionFailure("损坏的备注文件必须返回错误")
+    } catch {}
+
+    print("账号备注存储检查通过：读写、覆盖、清空、损坏文件和权限均正常。")
+}
+try checkAccountNoteStore()
+
 func checkRefreshPolicies() {
     precondition(
         TokenUsageRefreshPolicy.localScanInterval(automaticRefreshEnabled: true) == nil,

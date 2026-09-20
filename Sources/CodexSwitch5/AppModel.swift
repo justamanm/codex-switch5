@@ -22,6 +22,7 @@ final class AppModel: ObservableObject {
     @Published var pendingSwitchAccount: String?
     @Published var identities: [String: AccountIdentity] = [:]
     @Published var aliases: [String: String] = [:]
+    @Published var accountNotes: [String: String] = [:]
     @Published var refreshingAccounts: Set<String> = []
     @Published var showingAddAccount = false
     @Published var reauthenticatingAccount: String?
@@ -32,6 +33,8 @@ final class AppModel: ObservableObject {
     @Published var notice: String?
     @Published var editingAccount: String?
     @Published var editingAlias = ""
+    @Published var editingNoteAccount: String?
+    @Published var editingNote = ""
     @Published var removingAccount: String?
     @Published var accountGroupState = AccountGroupState()
     @Published var pendingAddAccountGroupID: UUID?
@@ -91,6 +94,9 @@ final class AppModel: ObservableObject {
     )
     private lazy var accountGroupStore = AccountGroupStore(
         url: appDataDirectory.appendingPathComponent("codex_switch5_account_groups.json")
+    )
+    private lazy var accountNoteStore = AccountNoteStore(
+        url: appDataDirectory.appendingPathComponent("account_notes.json")
     )
     private var nativeAccountService: NativeAccountService {
         NativeAccountService(
@@ -181,6 +187,7 @@ final class AppModel: ObservableObject {
         beginWeeklyQuotaProjectionIfNeeded(for: currentName)
         configureAutomaticRefresh()
         if !accounts.isEmpty, lastError == nil { refresh() }
+        loadAccountNotes()
         if let appDataMigrationError {
             lastError = text("无法迁移应用数据：%@", appDataMigrationError)
         }
@@ -371,8 +378,14 @@ final class AppModel: ObservableObject {
     }
 
     func identityHelp(for account: String) -> String {
-        guard let identity = identities[account] else { return text("账号文件名：%@", account) }
-        return text("用户名：%@\n邮箱：%@", identity.originalName, identity.email)
+        let identityText: String
+        if let identity = identities[account] {
+            identityText = text("用户名：%@\n邮箱：%@", identity.originalName, identity.email)
+        } else {
+            identityText = text("账号文件名：%@", account)
+        }
+        guard let note = note(for: account) else { return identityText }
+        return identityText + "\n" + text("备注：%@", note)
     }
 
     func beginEditingAlias(_ account: String) {
@@ -386,6 +399,39 @@ final class AppModel: ObservableObject {
         if value.isEmpty { aliases.removeValue(forKey: account) } else { aliases[account] = value }
         saveAliases()
         editingAccount = nil
+    }
+
+    func note(for account: String) -> String? {
+        let value = accountNotes[account]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return value.isEmpty ? nil : value
+    }
+
+    func beginEditingNote(_ account: String) {
+        editingNoteAccount = account
+        editingNote = accountNotes[account] ?? ""
+    }
+
+    func cancelEditingNote() {
+        editingNoteAccount = nil
+        editingNote = ""
+    }
+
+    func saveNote() {
+        guard let account = editingNoteAccount else { return }
+        let value = editingNote.trimmingCharacters(in: .whitespacesAndNewlines)
+        var updated = accountNotes
+        if value.isEmpty {
+            updated.removeValue(forKey: account)
+        } else {
+            updated[account] = value
+        }
+        do {
+            try accountNoteStore.save(updated)
+            accountNotes = updated
+            cancelEditingNote()
+        } catch {
+            lastError = text("无法保存账号备注：%@", error.localizedDescription)
+        }
     }
 
     func prepareAddAccount() {
@@ -614,16 +660,30 @@ final class AppModel: ObservableObject {
         do {
             var trashedURL: NSURL?
             try FileManager.default.trashItem(at: credential, resultingItemURL: &trashedURL)
-            aliases.removeValue(forKey: account)
-            saveAliases()
-            updateAccountGroups { $0.assign(accounts: [account], to: nil) }
-            removingAccount = nil
-            loadFromDisk()
-            status = text("已将 %@ 的凭据移到废纸篓", account)
         } catch {
             lastError = text("移除失败：%@", error.localizedDescription)
             removingAccount = nil
+            return
         }
+
+        aliases.removeValue(forKey: account)
+        saveAliases()
+        var noteCleanupError: String?
+        if accountNotes[account] != nil {
+            var updated = accountNotes
+            updated.removeValue(forKey: account)
+            do {
+                try accountNoteStore.save(updated)
+                accountNotes = updated
+            } catch {
+                noteCleanupError = text("无法保存账号备注：%@", error.localizedDescription)
+            }
+        }
+        updateAccountGroups { $0.assign(accounts: [account], to: nil) }
+        removingAccount = nil
+        loadFromDisk()
+        status = text("已将 %@ 的凭据移到废纸篓", account)
+        if let noteCleanupError { lastError = noteCleanupError }
     }
 
     func requestSwitch(to account: String) {
@@ -1230,6 +1290,15 @@ final class AppModel: ObservableObject {
         guard let data = try? JSONEncoder().encode(aliases) else { return }
         try? data.write(to: url, options: .atomic)
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+    }
+
+    private func loadAccountNotes() {
+        do {
+            accountNotes = try accountNoteStore.load()
+        } catch {
+            accountNotes = [:]
+            lastError = text("无法读取账号备注：%@", error.localizedDescription)
+        }
     }
 
     func groupID(for account: String) -> UUID? { accountGroupState.accountGroupIDs[account] }

@@ -240,6 +240,12 @@ struct DashboardView: View {
                 set: { if !$0 { model.editingAccount = nil } }
             )
         ) { aliasSheet }
+        .sheet(
+            isPresented: Binding(
+                get: { model.editingNoteAccount != nil },
+                set: { if !$0 { model.cancelEditingNote() } }
+            )
+        ) { noteSheet }
     }
 
     private var pageHeader: some View {
@@ -487,6 +493,7 @@ struct DashboardView: View {
                         refreshAction: { model.refresh(account: account.name) },
                         switchAction: { model.requestSwitch(to: account.name) },
                         aliasAction: { model.beginEditingAlias(account.name) },
+                        noteAction: { model.beginEditingNote(account.name) },
                         removeAction: { model.requestRemove(account.name) },
                         reauthenticateAction: { model.prepareReauthentication(for: account.name) },
                         allowsDragging: !model.isSwitching,
@@ -611,7 +618,7 @@ struct DashboardView: View {
                 usesCompactLayout: usesCompactLayout,
                 isRefreshing: model.refreshingAccounts.contains(account.name),
                 isSwitching: model.isSwitching,
-                refreshAction: {}, switchAction: {}, aliasAction: {}, removeAction: {}, reauthenticateAction: {},
+                refreshAction: {}, switchAction: {}, aliasAction: {}, noteAction: {}, removeAction: {}, reauthenticateAction: {},
                 allowsDragging: false,
                 isBeingDragged: false,
                 dragChanged: { _ in }, dragEnded: {}
@@ -1411,6 +1418,24 @@ struct DashboardView: View {
         }
         .padding(24).frame(width: 420)
     }
+
+    private var noteSheet: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text(model.text("账号备注")).font(.title2.bold())
+            TextField(model.text("备注"), text: $model.editingNote)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit { model.saveNote() }
+            HStack {
+                Spacer()
+                Button(model.text("取消")) { model.cancelEditingNote() }
+                    .keyboardShortcut(.cancelAction)
+                Button(model.text("保存")) { model.saveNote() }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(24).frame(width: 420)
+    }
 }
 
 private struct AccountSortManagerSheet: View {
@@ -1760,7 +1785,6 @@ private struct AccountGroupManagerSheet: View {
 
 private struct AccountDashboardRow: View {
     @EnvironmentObject private var model: AppModel
-    @State private var showingActions = false
     private let accent = AppStyle.accent
     let account: AccountUsage
     let displayName: String
@@ -1773,6 +1797,7 @@ private struct AccountDashboardRow: View {
     let refreshAction: () -> Void
     let switchAction: () -> Void
     let aliasAction: () -> Void
+    let noteAction: () -> Void
     let removeAction: () -> Void
     let reauthenticateAction: () -> Void
     let allowsDragging: Bool
@@ -1807,8 +1832,21 @@ private struct AccountDashboardRow: View {
 
     private var accountIdentity: some View {
         VStack(alignment: .leading, spacing: 5) {
-            HoverAccountName(name: displayName, identityHelp: identityHelp, font: .system(size: 14, weight: .semibold))
-                .lineLimit(1)
+            HStack(spacing: 5) {
+                HoverAccountName(name: displayName, identityHelp: identityHelp, font: .system(size: 14, weight: .semibold))
+                    .lineLimit(1)
+                    .layoutPriority(1)
+                Button(action: noteAction) {
+                    Image(systemName: "square.and.pencil")
+                        .font(.system(size: 12))
+                        .frame(width: 20, height: 20)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help(model.text(model.note(for: account.name) == nil ? "添加备注" : "编辑备注"))
+                .accessibilityLabel(model.text(model.note(for: account.name) == nil ? "添加备注" : "编辑备注"))
+            }
             if account.authInvalid {
                 InvalidAccountBadge(invalidSince: account.authInvalidSince, reauthenticateAction: reauthenticateAction)
             } else if isCurrent {
@@ -1869,7 +1907,6 @@ private struct AccountDashboardRow: View {
                     }
                     Button(model.text("未分组")) { model.assignAccounts([account.name], to: nil) }
                 }
-                Button(model.text("查看账号信息")) { showingActions = true }
                 Divider()
                 Button(model.text("移除账号"), role: .destructive, action: removeAction)
                     .disabled(isCurrent)
@@ -1882,11 +1919,6 @@ private struct AccountDashboardRow: View {
             .accessibilityLabel(model.text("账号操作"))
             .help(model.text("账号操作"))
             .disabled(isSwitching)
-            .popover(isPresented: $showingActions) {
-                Text(identityHelp).textSelection(.enabled)
-                    .font(.system(size: 13)).padding(18)
-                    .frame(minWidth: 240, maxWidth: 420, alignment: .leading)
-            }
             if !isCurrent {
                 Button(model.text("切换"), action: switchAction)
                     .buttonStyle(.bordered)
@@ -1943,6 +1975,8 @@ private struct HoverAccountName: View {
     var body: some View {
         Text(name)
             .font(font)
+            .accessibilityLabel(name)
+            .accessibilityValue(identityHelp)
             .onHover { hovering in
                 if hovering {
                     showPopover()
