@@ -63,4 +63,12 @@ Credentials and statistics are stored locally on the Mac. Quota queries connect 
 
 Deleting only the Codex Switch5 app preserves existing local account credentials and does not disrupt ChatGPT or Codex sign-in or use. App settings and statistics also remain; uninstalling does not automatically restore the account used before switching. See the [user guide](docs/User_Guide.md) for file locations, sign-in behavior, and how statistics are calculated.
 
+## Community
+
+This project takes part in and endorses the [LINUX DO](https://linux.do/) community.
+
+## License
+
+This project is available under the [MIT License](LICENSE).
+
 [Report an issue](https://github.com/justamanm/codex-switch5/issues)
