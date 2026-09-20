@@ -8,7 +8,13 @@ public struct QuotaObservation: Codable, Equatable, Sendable {
     public let weeklyRemaining: Int
     public let weeklyReset: Date?
     public let resetCards: Int
+    public let resetCardExpirations: [String]
     public let activeAccount: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case account, timestamp, fiveHourRemaining, fiveHourReset
+        case weeklyRemaining, weeklyReset, resetCards, resetCardExpirations, activeAccount
+    }
 
     public init?(usage: AccountUsage, activeAccount: String?, calendar: Calendar = .current) {
         guard !usage.authInvalid,
@@ -22,7 +28,21 @@ public struct QuotaObservation: Codable, Equatable, Sendable {
         weeklyRemaining = usage.weeklyRemaining
         weeklyReset = usage.weeklyResetAt.flatMap(Self.date)
         resetCards = usage.resetCards
+        resetCardExpirations = usage.resetCardExpirations
         self.activeAccount = activeAccount
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        account = try container.decode(String.self, forKey: .account)
+        timestamp = try container.decode(Date.self, forKey: .timestamp)
+        fiveHourRemaining = try container.decode(Int.self, forKey: .fiveHourRemaining)
+        fiveHourReset = try container.decodeIfPresent(Date.self, forKey: .fiveHourReset)
+        weeklyRemaining = try container.decode(Int.self, forKey: .weeklyRemaining)
+        weeklyReset = try container.decodeIfPresent(Date.self, forKey: .weeklyReset)
+        resetCards = try container.decode(Int.self, forKey: .resetCards)
+        resetCardExpirations = try container.decodeIfPresent([String].self, forKey: .resetCardExpirations) ?? []
+        activeAccount = try container.decodeIfPresent(String.self, forKey: .activeAccount)
     }
 
     public static func date(_ text: String) -> Date? {

@@ -59,6 +59,49 @@ func checkAppDataMigration() throws {
 }
 try checkAppDataMigration()
 
+func checkRefreshPolicies() {
+    precondition(
+        TokenUsageRefreshPolicy.localScanInterval(automaticRefreshEnabled: true) == nil,
+        "自动刷新额度开启时不应重复启动本地 Token 定时扫描"
+    )
+    precondition(
+        TokenUsageRefreshPolicy.localScanInterval(automaticRefreshEnabled: false) == 300,
+        "自动刷新额度关闭时应每 5 分钟扫描本地 Token"
+    )
+
+    let retained = ResetCardRefreshPolicy.resolve(
+        fallbackCount: 2,
+        refreshedCount: nil,
+        refreshedExpirations: nil,
+        previousExpirations: ["2030-01-01T00:00:00Z"]
+    )
+    precondition(
+        retained.count == 2 && retained.expirations == ["2030-01-01T00:00:00Z"],
+        "详情接口失败时必须保留已知重置卡到期时间"
+    )
+
+    let cleared = ResetCardRefreshPolicy.resolve(
+        fallbackCount: 0,
+        refreshedCount: nil,
+        refreshedExpirations: nil,
+        previousExpirations: ["2030-01-01T00:00:00Z"]
+    )
+    precondition(cleared.count == 0 && cleared.expirations.isEmpty, "明确 0 张卡时必须清空旧到期时间")
+
+    let replaced = ResetCardRefreshPolicy.resolve(
+        fallbackCount: 2,
+        refreshedCount: 1,
+        refreshedExpirations: ["2031-02-03T00:00:00Z"],
+        previousExpirations: ["2030-01-01T00:00:00Z"]
+    )
+    precondition(
+        replaced.count == 1 && replaced.expirations == ["2031-02-03T00:00:00Z"],
+        "详情接口恢复后必须使用新到期时间"
+    )
+    print("刷新规则检查通过：自动刷新互斥、5 分钟本地扫描及重置卡时间保留正常。")
+}
+checkRefreshPolicies()
+
 func checkNativeAccountSwitch() throws {
     let files = FileManager.default
     let root = files.temporaryDirectory.appendingPathComponent("native-account-switch-\(UUID().uuidString)")
@@ -169,9 +212,23 @@ func checkAuthenticationStateReset() throws {
     let validUsage = AccountUsage(
         name: "account", fiveHourRemaining: 76, fiveHourReset: "2026-09-11 22:42",
         weeklyRemaining: 64, weeklyReset: "9.15", weeklyResetAt: "2026-09-15T12:00:00Z",
-        resetCards: 2, notedAt: "2026-09-11T09:40:00Z"
+        resetCards: 2, resetCardExpirations: ["2026-10-01T00:00:00Z", "2026-11-01T00:00:00Z"],
+        notedAt: "2026-09-11T09:40:00Z"
     )
     let observation = QuotaObservation(usage: validUsage, activeAccount: "account")!
+    let observationEncoder = JSONEncoder()
+    observationEncoder.dateEncodingStrategy = .millisecondsSince1970
+    var legacyObservationObject = try JSONSerialization.jsonObject(
+        with: observationEncoder.encode(observation)
+    ) as! [String: Any]
+    legacyObservationObject.removeValue(forKey: "resetCardExpirations")
+    let observationDecoder = JSONDecoder()
+    observationDecoder.dateDecodingStrategy = .millisecondsSince1970
+    let legacyObservation = try observationDecoder.decode(
+        QuotaObservation.self,
+        from: JSONSerialization.data(withJSONObject: legacyObservationObject)
+    )
+    precondition(legacyObservation.resetCardExpirations.isEmpty, "旧额度记录缺少到期时间时应继续正常读取")
     _ = try UsageHistoryStore(url: historyURL).append([.observation(observation)])
     try JSONSerialization.data(withJSONObject: oldUsage).write(to: usageURL)
     try service.markAuthenticationInvalid(account: "account")
@@ -189,6 +246,10 @@ func checkAuthenticationStateReset() throws {
     precondition(restored?.fiveHourRemaining == 76 && restored?.fiveHourReset == "2026-09-11 22:42")
     precondition(restored?.weeklyRemaining == 64 && restored?.weeklyReset == "9.15")
     precondition(restored?.weeklyResetAt != nil && restored?.resetCards == 2)
+    precondition(
+        restored?.resetCardExpirations == ["2026-10-01T00:00:00Z", "2026-11-01T00:00:00Z"],
+        "凭证失效后没有从最近成功记录恢复重置卡到期时间"
+    )
     try JSONSerialization.data(withJSONObject: oldUsage).write(to: usageURL)
     let migratedCount = try service.restoreInvalidUsageFromHistory()
     precondition(migratedCount == 1)

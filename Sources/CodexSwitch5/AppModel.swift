@@ -47,6 +47,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var isCodexCLIInstalled = false
     @Published private(set) var isDetectingCodexCLI = true
     @Published private(set) var addAccountUsesChatGPT = false
+    @Published private(set) var isInitialLoadComplete = false
     @Published var appLanguage: AppLanguage {
         didSet { UserDefaults.standard.set(appLanguage.rawValue, forKey: "appLanguage") }
     }
@@ -59,6 +60,7 @@ final class AppModel: ObservableObject {
     private let appDataDirectory: URL
     private var appDataMigrationError: String?
     private var automaticTask: Task<Void, Never>?
+    private var tokenUsageRefreshTask: Task<Void, Never>?
     private var loginWatchTask: Task<Void, Never>?
     private var loginSession: AccountLoginSession?
     private var reauthenticationSession: AccountReauthenticationSession?
@@ -68,6 +70,7 @@ final class AppModel: ObservableObject {
     private var triggeredResetKeys: Set<String> = []
     private var usageLearningTask: Task<Void, Never>?
     private var tokenTotalsCache: [String: TokenUsageTotals] = [:]
+    private var hasStarted = false
     private lazy var usageDatabase = UsageDatabase(
         url: appDataDirectory.appendingPathComponent("codex_switch5.sqlite3")
     )
@@ -164,9 +167,12 @@ final class AppModel: ObservableObject {
     }
 
     func start() {
+        guard !hasStarted else { return }
+        hasStarted = true
         detectCodexCLI()
         let recovery = recoverInterruptedLoginOperation()
         loadFromDisk()
+        isInitialLoadComplete = true
         loadAccountGroups()
         switchHistory = switchHistoryStore.load()
         weeklyQuotaProjections = weeklyQuotaProjectionStore.projections()
@@ -451,6 +457,7 @@ final class AppModel: ObservableObject {
         loginRequiresCLIRestart = isCodexCLIInstalled
         lastError = nil
         automaticTask?.cancel()
+        tokenUsageRefreshTask?.cancel()
         resetRefreshTasks.values.forEach { $0.cancel() }
         addAccountStage = chatGPTURL == nil ? text("正在准备 Codex CLI 登录…") : text("正在关闭 ChatGPT…")
         loginWatchTask = Task { [weak self] in
@@ -650,11 +657,18 @@ final class AppModel: ObservableObject {
         }
         showingSwitchConfirmation = false
         isSwitching = true
+        automaticTask?.cancel()
+        tokenUsageRefreshTask?.cancel()
         lastError = nil
         let installedChatGPTURL = chatGPTApplicationURL
         let shouldReopenChatGPT = isChatGPTRunning(at: installedChatGPTURL)
         status = shouldReopenChatGPT ? text("正在关闭 ChatGPT…") : text("正在切换到 %@…", account)
         Task {
+            defer {
+                isSwitching = false
+                pendingSwitchAccount = nil
+                configureAutomaticRefresh()
+            }
             do {
                 refreshTokenUsage()
                 beginWeeklyQuotaProjectionIfNeeded(for: sourceAccount)
@@ -673,8 +687,6 @@ final class AppModel: ObservableObject {
                     recordSwitch(from: sourceAccount, to: account, result: .failure, message: result.output)
                     lastError = result.output
                     status = text("切换失败")
-                    isSwitching = false
-                    pendingSwitchAccount = nil
                     return
                 }
                 let switchedAt = Date()
@@ -706,8 +718,6 @@ final class AppModel: ObservableObject {
                 lastError = error.localizedDescription
                 status = text("切换未开始")
             }
-            isSwitching = false
-            pendingSwitchAccount = nil
         }
     }
 
@@ -879,6 +889,7 @@ final class AppModel: ObservableObject {
 
     func configureAutomaticRefresh() {
         automaticTask?.cancel()
+        configureTokenUsageRefresh()
         guard automaticRefresh, !isAddingAccount, !isSwitching else { return }
         let normalized = RefreshIntervalPolicy.normalized(
             value: refreshIntervalValue,
@@ -890,6 +901,25 @@ final class AppModel: ObservableObject {
             try? await Task.sleep(for: .seconds(normalized.seconds))
             guard !Task.isCancelled else { return }
             self?.refresh(automatic: true)
+        }
+    }
+
+    private func configureTokenUsageRefresh() {
+        tokenUsageRefreshTask?.cancel()
+        guard isInitialLoadComplete, !isAddingAccount, !isSwitching,
+              let interval = TokenUsageRefreshPolicy.localScanInterval(
+                  automaticRefreshEnabled: automaticRefresh
+              ) else { return }
+        tokenUsageRefreshTask = Task { [weak self] in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: .seconds(interval))
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled, let self else { return }
+                refreshTokenUsage()
+            }
         }
     }
 

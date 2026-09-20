@@ -132,7 +132,13 @@ struct DashboardView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            dashboardContent
+            Group {
+                if model.isInitialLoadComplete {
+                    dashboardContent
+                } else {
+                    startupLoadingView
+                }
+            }
                 .frame(width: proxy.size.width, height: proxy.size.height)
                 .onAppear { usesCompactLayout = proxy.size.width < compactLayoutBreakpoint }
                 .onChange(of: proxy.size.width < compactLayoutBreakpoint) { _, compact in usesCompactLayout = compact }
@@ -148,6 +154,17 @@ struct DashboardView: View {
         .onChange(of: selectedSection) { _, section in
             if section == .tokenUsage { refreshStatistics() }
         }
+    }
+
+    private var startupLoadingView: some View {
+        VStack(spacing: 14) {
+            ProgressView().controlSize(.large)
+            Text(model.text("正在载入本地账号…"))
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(AppStyle.background)
     }
 
     private var dashboardContent: some View {
@@ -656,6 +673,8 @@ struct DashboardView: View {
                 }
             }
             Text(model.text("自动查询最短每 1 分钟执行；多账号查询会限制同时请求数，单账号查询立即执行。"))
+                .font(.system(size: 14)).foregroundStyle(.secondary)
+            Text(model.text("开启自动查询时，Token 统计随额度一起更新；关闭后每 5 分钟只更新本地 Token 统计。"))
                 .font(.system(size: 14)).foregroundStyle(.secondary)
             Divider()
             HStack {

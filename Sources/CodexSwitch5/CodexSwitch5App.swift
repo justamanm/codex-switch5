@@ -21,6 +21,9 @@ struct CodexSwitch5App: App {
                     Text("English").tag(AppLanguage.english)
                 }
                 Toggle(model.text("启用自动刷新"), isOn: $model.automaticRefresh)
+                    .onChange(of: model.automaticRefresh) { _, _ in
+                        model.configureAutomaticRefresh()
+                    }
                 HStack {
                     TextField(model.text("间隔"), value: $model.refreshIntervalValue, format: .number)
                     Picker(model.text("单位"), selection: $model.refreshIntervalUnit) {

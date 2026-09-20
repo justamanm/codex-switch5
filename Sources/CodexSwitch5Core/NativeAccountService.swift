@@ -30,9 +30,14 @@ public struct NativeAccountService: Sendable {
                 returning: [(String, Result<AccountUsage, NativeAccountServiceError>)].self
             ) { group in
                 for account in batch {
+                    let previous = records[account]
                     group.addTask {
                         do {
-                            return (account, .success(try await query(account: account, currentAccount: currentAccount)))
+                            return (account, .success(try await query(
+                                account: account,
+                                currentAccount: currentAccount,
+                                previous: previous
+                            )))
                         } catch let error as NativeAccountServiceError {
                             return (account, .failure(error))
                         } catch {
@@ -192,7 +197,7 @@ public struct NativeAccountService: Sendable {
         return nil
     }
 
-    private func query(account: String, currentAccount: String?) async throws -> AccountUsage {
+    private func query(account: String, currentAccount: String?, previous: AccountUsage?) async throws -> AccountUsage {
         try validateName(account)
         let path = account == currentAccount ? codexDirectory.appendingPathComponent("auth.json") : codexDirectory.appendingPathComponent("auth.json.\(account)")
         let data = try Data(contentsOf: path)
@@ -205,7 +210,8 @@ public struct NativeAccountService: Sendable {
             return try await requestUsageWithRetry(
                 account: account,
                 accessToken: access,
-                accountID: tokens["account_id"] as? String
+                accountID: tokens["account_id"] as? String,
+                previous: previous
             )
         } catch NativeAccountServiceError.http(401) {
             guard let refresh = tokens["refresh_token"] as? String, !refresh.isEmpty else { throw NativeAccountServiceError.authenticationExpired }
@@ -220,7 +226,8 @@ public struct NativeAccountService: Sendable {
             return try await requestUsageWithRetry(
                 account: account,
                 accessToken: newAccess,
-                accountID: tokens["account_id"] as? String
+                accountID: tokens["account_id"] as? String,
+                previous: previous
             )
         }
     }
@@ -230,7 +237,8 @@ public struct NativeAccountService: Sendable {
     private func requestUsageWithRetry(
         account: String,
         accessToken: String,
-        accountID: String?
+        accountID: String?,
+        previous: AccountUsage?
     ) async throws -> AccountUsage {
         var retryCount = 0
         while true {
@@ -238,7 +246,8 @@ public struct NativeAccountService: Sendable {
                 return try await requestUsage(
                     account: account,
                     accessToken: accessToken,
-                    accountID: accountID
+                    accountID: accountID,
+                    previous: previous
                 )
             } catch let error as NativeAccountServiceError {
                 guard error.isTemporary, retryCount < 2 else { throw error }
@@ -252,7 +261,12 @@ public struct NativeAccountService: Sendable {
         }
     }
 
-    private func requestUsage(account: String, accessToken: String, accountID: String?) async throws -> AccountUsage {
+    private func requestUsage(
+        account: String,
+        accessToken: String,
+        accountID: String?,
+        previous: AccountUsage?
+    ) async throws -> AccountUsage {
         let request = whamRequest(path: "usage", accessToken: accessToken, accountID: accountID)
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw NativeAccountServiceError.invalidResponse }
@@ -273,13 +287,19 @@ public struct NativeAccountService: Sendable {
         let credits = object["rate_limit_reset_credits"] as? [String: Any]
         let balance = (object["credits"] as? [String: Any])?["balance"] as? Double
         let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.dateFormat = "yyyy-MM-dd HH:mm"
-        let fallbackResetCardCount = (credits?["available_count"] as? NSNumber)?.intValue ?? 0
+        let reportedResetCardCount = (credits?["available_count"] as? NSNumber)?.intValue
+        // 字段缺失不等于明确为零：先沿用本机记录，并尝试重新查询详情。
+        let fallbackResetCardCount = reportedResetCardCount ?? previous?.resetCards ?? 0
         let resetCardDetails = fallbackResetCardCount > 0
             ? await requestResetCards(accessToken: accessToken, accountID: accountID)
             : nil
-        let resetCards = resetCardDetails?.count ?? fallbackResetCardCount
-        let resetCardExpirations = resetCardDetails?.expirations ?? []
-        return AccountUsage(name: account, fiveHourRemaining: try remaining(primary), fiveHourReset: formatter.string(from: five), weeklyRemaining: try remaining(secondary), weeklyReset: "\(Calendar.current.component(.month, from: weekly)).\(Calendar.current.component(.day, from: weekly))", weeklyResetAt: ISO8601DateFormatter().string(from: weekly), resetCards: resetCards, resetCardExpirations: resetCardExpirations, creditBalance: balance, authInvalid: false, notedAt: ISO8601DateFormatter().string(from: Date()))
+        let resetCardState = ResetCardRefreshPolicy.resolve(
+            fallbackCount: fallbackResetCardCount,
+            refreshedCount: resetCardDetails?.count,
+            refreshedExpirations: resetCardDetails?.expirations,
+            previousExpirations: previous?.resetCardExpirations ?? []
+        )
+        return AccountUsage(name: account, fiveHourRemaining: try remaining(primary), fiveHourReset: formatter.string(from: five), weeklyRemaining: try remaining(secondary), weeklyReset: "\(Calendar.current.component(.month, from: weekly)).\(Calendar.current.component(.day, from: weekly))", weeklyResetAt: ISO8601DateFormatter().string(from: weekly), resetCards: resetCardState.count, resetCardExpirations: resetCardState.expirations, creditBalance: balance, authInvalid: false, notedAt: ISO8601DateFormatter().string(from: Date()))
     }
 
     private func whamRequest(path: String, accessToken: String, accountID: String?) -> URLRequest {
@@ -356,6 +376,7 @@ public struct NativeAccountService: Sendable {
         let retained = previous.flatMap { $0.authInvalid ? latestSuccessfulUsage(account: account) : $0 }
             ?? latestSuccessfulUsage(account: account)
         if let retained {
+            let previousExpirations = previous?.resetCardExpirations ?? []
             return AccountUsage(
                 name: account,
                 fiveHourRemaining: retained.fiveHourRemaining,
@@ -364,7 +385,9 @@ public struct NativeAccountService: Sendable {
                 weeklyReset: retained.weeklyReset,
                 weeklyResetAt: retained.weeklyResetAt,
                 resetCards: retained.resetCards,
-                resetCardExpirations: previous?.resetCardExpirations ?? retained.resetCardExpirations,
+                resetCardExpirations: previousExpirations.isEmpty
+                    ? retained.resetCardExpirations
+                    : previousExpirations,
                 creditBalance: retained.creditBalance,
                 authInvalid: true,
                 authInvalidSince: invalidSince,
@@ -402,6 +425,7 @@ public struct NativeAccountService: Sendable {
             weeklyReset: weeklyReset,
             weeklyResetAt: observation.weeklyReset.map(ISO8601DateFormatter().string),
             resetCards: observation.resetCards,
+            resetCardExpirations: observation.resetCardExpirations,
             authInvalid: false,
             notedAt: ISO8601DateFormatter().string(from: observation.timestamp)
         )
