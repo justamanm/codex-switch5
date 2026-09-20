@@ -67,12 +67,18 @@ final class AppModel: ObservableObject {
     private var resetRefreshTasks: [String: Task<Void, Never>] = [:]
     private var triggeredResetKeys: Set<String> = []
     private var usageLearningTask: Task<Void, Never>?
+    private var tokenTotalsCache: [String: TokenUsageTotals] = [:]
+    private lazy var usageDatabase = UsageDatabase(
+        url: appDataDirectory.appendingPathComponent("codex_switch5.sqlite3")
+    )
     private lazy var usageHistoryStore = UsageHistoryStore(
-        url: appDataDirectory.appendingPathComponent("codex_switch5_usage_history.jsonl")
+        database: usageDatabase,
+        legacyURL: appDataDirectory.appendingPathComponent("codex_switch5_usage_history.jsonl")
     )
     private lazy var tokenTracker = TokenUsageTracker(
         roots: [codexDirectory.appendingPathComponent("sessions"), codexDirectory.appendingPathComponent("archived_sessions")],
-        stateURL: appDataDirectory.appendingPathComponent("codex_switch5_token_usage.json")
+        database: usageDatabase,
+        legacyStateURL: appDataDirectory.appendingPathComponent("codex_switch5_token_usage.json")
     )
     private lazy var switchHistoryStore = SwitchHistoryStore(
         url: appDataDirectory.appendingPathComponent("codex_switch5_switch_history.json")
@@ -87,7 +93,8 @@ final class AppModel: ObservableObject {
         NativeAccountService(
             codexDirectory: codexDirectory,
             usageURL: appDataDirectory.appendingPathComponent("account_usage.json"),
-            usageHistoryURL: appDataDirectory.appendingPathComponent("codex_switch5_usage_history.jsonl")
+            usageHistoryURL: appDataDirectory.appendingPathComponent("codex_switch5_usage_history.jsonl"),
+            usageDatabase: usageDatabase
         )
     }
 
@@ -728,7 +735,10 @@ final class AppModel: ObservableObject {
 
     func refreshTokenUsage() {
         guard currentType == "account", !currentName.isEmpty else { return }
-        do { tokenEvents = try tokenTracker.scan(account: currentName) }
+        do {
+            tokenEvents = try tokenTracker.scan(account: currentName)
+            tokenTotalsCache.removeAll(keepingCapacity: true)
+        }
         catch { lastError = text("无法读取 Token 统计：%@", error.localizedDescription) }
     }
 
@@ -755,11 +765,19 @@ final class AppModel: ObservableObject {
             guard let reset else { return TokenUsageTotals() }
             start = reset.addingTimeInterval(-7 * 24 * 60 * 60)
         }
-        return tokenTracker.totals(events: tokenEvents, account: account, from: start, to: now)
+        let key = "account|\(account)|\(period)|\(start.timeIntervalSince1970)"
+        if let cached = tokenTotalsCache[key] { return cached }
+        let totals = (try? tokenTracker.totals(account: account, from: start, to: now)) ?? TokenUsageTotals()
+        tokenTotalsCache[key] = totals
+        return totals
     }
 
     func tokenTotals(from start: Date, to end: Date) -> TokenUsageTotals {
-        tokenTracker.totals(events: tokenEvents, from: start, to: end)
+        let key = "all|\(start.timeIntervalSince1970)|\(end.timeIntervalSince1970)"
+        if let cached = tokenTotalsCache[key] { return cached }
+        let totals = (try? tokenTracker.totals(from: start, to: end)) ?? TokenUsageTotals()
+        tokenTotalsCache[key] = totals
+        return totals
     }
 
     func tokenTotals(period: TokenUsagePeriod, now: Date = Date()) -> TokenUsageTotals {
@@ -862,10 +880,14 @@ final class AppModel: ObservableObject {
     func configureAutomaticRefresh() {
         automaticTask?.cancel()
         guard automaticRefresh, !isAddingAccount, !isSwitching else { return }
-        let value = max(refreshIntervalValue, 1)
-        let seconds = refreshIntervalUnit == "seconds" ? value : value * 60
+        let normalized = RefreshIntervalPolicy.normalized(
+            value: refreshIntervalValue,
+            unit: refreshIntervalUnit
+        )
+        if refreshIntervalValue != normalized.value { refreshIntervalValue = normalized.value }
+        if refreshIntervalUnit != normalized.unit { refreshIntervalUnit = normalized.unit }
         automaticTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(seconds))
+            try? await Task.sleep(for: .seconds(normalized.seconds))
             guard !Task.isCancelled else { return }
             self?.refresh(automatic: true)
         }
@@ -946,31 +968,39 @@ final class AppModel: ObservableObject {
     }
 
     private func saveUsageHistory(_ events: [UsageHistoryEvent]) {
-        do {
-            let records = try usageHistoryStore.append(events)
-            usageHistoryError = nil
-            updateUsageLearning(records: records)
-        } catch {
-            usageHistoryError = text("无法保存使用历史，原文件已保留：%@", error.localizedDescription)
+        let store = usageHistoryStore
+        Task { [weak self] in
+            do {
+                try await Task.detached(priority: .utility) { try store.save(events) }.value
+                self?.usageHistoryError = nil
+                self?.updateUsageLearning()
+            } catch {
+                self?.usageHistoryError = self?.text("无法保存使用历史，原文件已保留：%@", error.localizedDescription)
+            }
         }
     }
 
     func updateUsageLearning(records: [UsageHistoryEvent]? = nil, period: UsageLearningPeriod? = nil) {
-        do {
-            let records = try records ?? usageHistoryStore.load()
-            if let period { usageLearningPeriod = period }
-            let selectedPeriod = usageLearningPeriod
-            usageLearningTask?.cancel()
-            usageLearningTask = Task { [weak self] in
-                let tokenEvents = self?.tokenEvents ?? []
+        if let period { usageLearningPeriod = period }
+        let selectedPeriod = usageLearningPeriod
+        let recentStart = Calendar.current.date(byAdding: .day, value: -32, to: Date()) ?? .distantPast
+        let store = usageHistoryStore
+        let tokenEvents = tokenEvents
+        usageLearningTask?.cancel()
+        usageLearningTask = Task { [weak self] in
+            do {
+                let loadedRecords = try await Task.detached(priority: .utility) {
+                    try records ?? store.load(from: recentStart)
+                }.value
                 let summary = await Task.detached(priority: .utility) {
-                    UsageLearning.summarize(records, tokenEvents: tokenEvents, period: selectedPeriod)
+                    UsageLearning.summarize(loadedRecords, tokenEvents: tokenEvents, period: selectedPeriod)
                 }.value
                 guard !Task.isCancelled else { return }
                 self?.usageLearning = summary
+                self?.usageHistoryError = nil
+            } catch {
+                self?.usageHistoryError = self?.text("无法读取使用历史，原文件已保留：%@", error.localizedDescription)
             }
-        } catch {
-            usageHistoryError = text("无法读取使用历史，原文件已保留：%@", error.localizedDescription)
         }
     }
 

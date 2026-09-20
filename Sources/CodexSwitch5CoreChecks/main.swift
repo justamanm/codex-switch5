@@ -1,6 +1,37 @@
 import CodexSwitch5Core
 import Foundation
 
+if let flag = CommandLine.arguments.firstIndex(of: "--verify-legacy-import"),
+   CommandLine.arguments.count > flag + 2 {
+    let source = URL(fileURLWithPath: CommandLine.arguments[flag + 1], isDirectory: true)
+    let codex = URL(fileURLWithPath: CommandLine.arguments[flag + 2], isDirectory: true)
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("switch5-real-import-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    let tokenName = "codex_switch5_token_usage.json"
+    let historyName = "codex_switch5_usage_history.jsonl"
+    for name in [tokenName, historyName] {
+        let input = source.appendingPathComponent(name)
+        if FileManager.default.fileExists(atPath: input.path) {
+            try FileManager.default.copyItem(at: input, to: root.appendingPathComponent(name))
+        }
+    }
+    let database = UsageDatabase(url: root.appendingPathComponent("codex_switch5.sqlite3"))
+    let tracker = TokenUsageTracker(
+        roots: [codex.appendingPathComponent("sessions"), codex.appendingPathComponent("archived_sessions")],
+        database: database,
+        legacyStateURL: root.appendingPathComponent(tokenName)
+    )
+    _ = try tracker.scan(account: "verification")
+    let history = try UsageHistoryStore(
+        database: database,
+        legacyURL: root.appendingPathComponent(historyName)
+    ).load()
+    let tokenCount = try database.tokenUsageRecordCount()
+    print("本机一次性导入验证通过：Token 记录 \(tokenCount) 条，额度历史 \(history.count) 条。")
+    print("验证数据库：\(database.url.path)")
+    exit(0)
+}
+
 func checkAppDataMigration() throws {
     let files = FileManager.default
     let root = files.temporaryDirectory.appendingPathComponent("app-data-migration-\(UUID().uuidString)")
@@ -472,11 +503,32 @@ func checkTokenUsageTracking() throws {
     precondition(switched[1].account == "alpha" && switched[1].input == 300, "切换前 Token 没有归入旧账号")
     precondition(switched[2].account == "beta" && switched[2].input == 400, "切换后 Token 没有归入新账号")
 
-    let legacyStateURL = root.appendingPathComponent("legacy-state.json")
+    let nested = sessions.appendingPathComponent("moved")
+    try files.createDirectory(at: nested, withIntermediateDirectories: true)
+    let movedLog = nested.appendingPathComponent("renamed.jsonl")
+    try files.moveItem(at: log, to: movedLog)
+    let afterMove = try tracker.scan(account: "beta")
+    precondition(afterMove.count == 3, "日志移动或改名后不应重复计数")
+    let movedHandle = try FileHandle(forWritingTo: movedLog)
+    try movedHandle.seekToEnd()
+    try movedHandle.write(contentsOf: Data(tokenRecord(500, timestamp: "2026-09-06T09:10:02Z").utf8))
+    try movedHandle.close()
+    let afterMovedAppend = try tracker.scan(account: "beta")
+    precondition(afterMovedAppend.count == 4 && afterMovedAppend.last?.input == 500, "日志移动后没有继续增量读取")
+    try record(600, timestamp: "2026-09-06T09:10:03Z").write(to: movedLog, atomically: true, encoding: .utf8)
+    let afterTruncate = try tracker.scan(account: "beta")
+    precondition(afterTruncate.count == 5 && afterTruncate.last?.input == 600, "日志截断或替换后没有从头读取新记录")
+
+    let importRoot = files.temporaryDirectory.appendingPathComponent("token-import-check-\(UUID().uuidString)")
+    let importSessions = importRoot.appendingPathComponent("sessions")
+    try files.createDirectory(at: importSessions, withIntermediateDirectories: true)
+    let importLog = importSessions.appendingPathComponent("legacy-rollout.jsonl")
+    try record(100).write(to: importLog, atomically: true, encoding: .utf8)
+    let legacyStateURL = importRoot.appendingPathComponent("legacy-state.json")
     let legacyState = """
     {
       "activeAccount": "alpha",
-      "cursors": {},
+      "cursors": {"legacy-rollout.jsonl": 0},
       "events": [{
         "account": "alpha",
         "cacheWriteInput": 0,
@@ -488,15 +540,18 @@ func checkTokenUsageTracking() throws {
         "reasoningOutput": 0,
         "timestamp": "2026-09-06T09:00:00Z"
       }],
-      "models": {}
+      "models": {"legacy-rollout.jsonl": "gpt-5.6-sol"},
+      "timeline": [{"account":"alpha","timestamp":"2026-09-06T09:00:00Z"}]
     }
     """
     try legacyState.write(to: legacyStateURL, atomically: true, encoding: .utf8)
-    let legacyTracker = TokenUsageTracker(roots: [sessions], stateURL: legacyStateURL, now: { initialTime })
+    let legacyTracker = TokenUsageTracker(roots: [importSessions], stateURL: legacyStateURL, now: { initialTime })
     let migratedEvents = try legacyTracker.scan(account: "alpha")
-    precondition(migratedEvents.isEmpty, "旧版错误统计没有在迁移时清空")
-    let legacyBackup = legacyStateURL.deletingPathExtension().appendingPathExtension("pre-timeline-backup.json")
-    precondition(files.fileExists(atPath: legacyBackup.path), "旧版统计迁移前没有创建备份")
+    precondition(migratedEvents.contains(where: { $0.id == "legacy:1" && $0.input == 999 }), "本机旧记录没有导入")
+    _ = try legacyTracker.scan(account: "alpha")
+    let importedRecordCount = try legacyTracker.database.tokenUsageRecordCount()
+    precondition(importedRecordCount == 2, "重复启动不应重复导入本机旧记录")
+    precondition(files.fileExists(atPath: legacyStateURL.path), "导入后必须保留本机旧记录文件")
     let priceEvent = TokenUsageEvent(
         id: "price", account: "alpha", timestamp: Date(), model: "gpt-5.6-sol",
         input: 1_000_000, cachedInput: 500_000, cacheWriteInput: 0,
@@ -538,9 +593,46 @@ func checkTokenUsageTracking() throws {
     precondition(reviewTotals.autoReviewTokens == 330, "没有单独统计 codex-auto-review 用量")
     precondition(reviewTotals.unpricedEvents == 0, "codex-auto-review 不应标记成未知价格事件")
     precondition(ModelPricing.estimatedUSD(for: autoReviewEvent) == nil, "codex-auto-review 不应套用公开模型价格")
-    print("Token 增量统计检查通过：忽略历史、读取新增、避免重复、按切换时间归属账号、备份旧统计、分别计算缓存价格，历史分段交界不重复。")
+    let databaseTotals = try tracker.totals(account: "beta", from: switchTime, to: switchTime.addingTimeInterval(10))
+    precondition(databaseTotals.total == 1_560, "数据库没有按账号和时间汇总单次 Token 用量记录")
+    print("Token 增量统计检查通过：忽略启用前历史、读取新增、避免重复、日志移动与截断、按切换时间归属账号、一次性导入本机记录、数据库汇总与价格计算。")
 }
 try checkTokenUsageTracking()
+
+func checkUsageDatabaseRetention() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("usage-database-check-\(UUID().uuidString)")
+    let database = UsageDatabase(url: root.appendingPathComponent("codex_switch5.sqlite3"))
+    try database.prepare()
+    let day = ISO8601DateFormatter().date(from: "2026-01-02T00:00:00Z")!
+    let records = [
+        TokenUsageEvent(
+            id: "old-priced", account: "alpha", timestamp: day.addingTimeInterval(60), model: "gpt-5.6-sol",
+            input: 100, cachedInput: 20, cacheWriteInput: 0, output: 10, reasoningOutput: 2
+        ),
+        TokenUsageEvent(
+            id: "old-unknown", account: "alpha", timestamp: day.addingTimeInterval(120), model: "future-model",
+            input: 200, cachedInput: 0, cacheWriteInput: 0, output: 20, reasoningOutput: 4
+        )
+    ]
+    try database.insertTokenUsageRecords(records + records)
+    let uniqueRecordCount = try database.tokenUsageRecordCount()
+    precondition(uniqueRecordCount == 2, "单次 Token 用量记录必须按 ID 去重")
+    let before = try database.tokenTotals(account: "alpha", from: day, to: day.addingTimeInterval(86_400))
+    var utcCalendar = Calendar(identifier: .gregorian)
+    utcCalendar.timeZone = TimeZone(secondsFromGMT: 0)!
+    try database.performTokenRetention(before: day.addingTimeInterval(86_400), calendar: utcCalendar)
+    let detailedCount = try database.tokenUsageRecordCount()
+    let after = try database.tokenTotals(account: "alpha", from: day, to: day.addingTimeInterval(86_400))
+    precondition(detailedCount == 0 && before == after, "90 天前明细汇总后不得改变统计结果")
+    try database.insertTokenUsageRecords(records)
+    let rescannedRecordCount = try database.tokenUsageRecordCount()
+    precondition(rescannedRecordCount == 0, "历史汇总后重新扫描不得重复计数")
+    precondition(RefreshIntervalPolicy.normalized(value: 1, unit: "seconds").seconds == 60)
+    precondition(RefreshIntervalPolicy.normalized(value: 61, unit: "seconds").seconds == 120)
+    precondition(RefreshIntervalPolicy.normalized(value: 0, unit: "minutes").seconds == 60)
+    print("长期存储检查通过：数据库去重、90 天汇总、汇总后防重和最小刷新间隔正常。")
+}
+try checkUsageDatabaseRetention()
 
 func checkWeeklyQuotaProjection() throws {
     let files = FileManager.default

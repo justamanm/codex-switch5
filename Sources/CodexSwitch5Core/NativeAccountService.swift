@@ -5,25 +5,60 @@ public struct NativeAccountService: Sendable {
     public let codexDirectory: URL
     public let usageURL: URL
     public let usageHistoryURL: URL?
+    public let usageDatabase: UsageDatabase?
     private let session: URLSession
 
-    public init(codexDirectory: URL, usageURL: URL, usageHistoryURL: URL? = nil, session: URLSession = .shared) {
+    public init(
+        codexDirectory: URL, usageURL: URL, usageHistoryURL: URL? = nil,
+        usageDatabase: UsageDatabase? = nil, session: URLSession = .shared
+    ) {
         self.codexDirectory = codexDirectory
         self.usageURL = usageURL
         self.usageHistoryURL = usageHistoryURL
+        self.usageDatabase = usageDatabase
         self.session = session
     }
 
     public func refresh(accounts: Set<String>, currentAccount: String?, skippingInvalid: Set<String> = []) async throws -> [AccountUsage] {
         var records = try loadUsage()
-        for account in accounts.sorted() where !skippingInvalid.contains(account) {
-            do {
-                records[account] = try await query(account: account, currentAccount: currentAccount)
-            } catch let error as NativeAccountServiceError where error.isAuthenticationFailure {
-                records[account] = invalidUsage(account: account, previous: records[account])
+        let requested = accounts.sorted().filter { !skippingInvalid.contains($0) }
+        var failedAccounts: [String] = []
+        for start in stride(from: 0, to: requested.count, by: 3) {
+            let batch = Array(requested[start..<min(start + 3, requested.count)])
+            let results = await withTaskGroup(
+                of: (String, Result<AccountUsage, NativeAccountServiceError>).self,
+                returning: [(String, Result<AccountUsage, NativeAccountServiceError>)].self
+            ) { group in
+                for account in batch {
+                    group.addTask {
+                        do {
+                            return (account, .success(try await query(account: account, currentAccount: currentAccount)))
+                        } catch let error as NativeAccountServiceError {
+                            return (account, .failure(error))
+                        } catch {
+                            return (account, .failure(.transport(error.localizedDescription)))
+                        }
+                    }
+                }
+                var values: [(String, Result<AccountUsage, NativeAccountServiceError>)] = []
+                for await value in group { values.append(value) }
+                return values
+            }
+            for (account, result) in results {
+                switch result {
+                case .success(let usage):
+                    records[account] = usage
+                case .failure(let error) where error.isAuthenticationFailure:
+                    records[account] = invalidUsage(account: account, previous: records[account])
+                case .failure:
+                    failedAccounts.append(account)
+                }
             }
         }
         try saveUsage(records)
+        if !failedAccounts.isEmpty {
+            throw NativeAccountServiceError.partialFailure(failedAccounts.sorted())
+        }
         return records.values.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
@@ -167,7 +202,11 @@ public struct NativeAccountService: Sendable {
             throw NativeAccountServiceError.invalidCredentials("账号凭据缺少 access_token")
         }
         do {
-            return try await requestUsage(account: account, accessToken: access, accountID: tokens["account_id"] as? String)
+            return try await requestUsageWithRetry(
+                account: account,
+                accessToken: access,
+                accountID: tokens["account_id"] as? String
+            )
         } catch NativeAccountServiceError.http(401) {
             guard let refresh = tokens["refresh_token"] as? String, !refresh.isEmpty else { throw NativeAccountServiceError.authenticationExpired }
             let refreshed = try await refreshToken(refresh)
@@ -178,7 +217,38 @@ public struct NativeAccountService: Sendable {
             auth["tokens"] = tokens
             auth["last_refresh"] = ISO8601DateFormatter().string(from: Date())
             try atomicJSON(auth, to: path, permissions: 0o600)
-            return try await requestUsage(account: account, accessToken: newAccess, accountID: tokens["account_id"] as? String)
+            return try await requestUsageWithRetry(
+                account: account,
+                accessToken: newAccess,
+                accountID: tokens["account_id"] as? String
+            )
+        }
+    }
+
+    /// 网络短暂中断或服务临时繁忙时最多重试两次；
+    /// 登录失效和数据格式错误不会重试，避免无意义请求。
+    private func requestUsageWithRetry(
+        account: String,
+        accessToken: String,
+        accountID: String?
+    ) async throws -> AccountUsage {
+        var retryCount = 0
+        while true {
+            do {
+                return try await requestUsage(
+                    account: account,
+                    accessToken: accessToken,
+                    accountID: accountID
+                )
+            } catch let error as NativeAccountServiceError {
+                guard error.isTemporary, retryCount < 2 else { throw error }
+            } catch {
+                guard retryCount < 2 else {
+                    throw NativeAccountServiceError.transport(error.localizedDescription)
+                }
+            }
+            retryCount += 1
+            try? await Task.sleep(nanoseconds: UInt64(retryCount) * 1_000_000_000)
         }
     }
 
@@ -306,12 +376,18 @@ public struct NativeAccountService: Sendable {
     }
 
     private func latestSuccessfulUsage(account: String) -> AccountUsage? {
-        guard let usageHistoryURL,
-              let events = try? UsageHistoryStore(url: usageHistoryURL).load(),
-              let observation = events.reversed().compactMap({ event -> QuotaObservation? in
-                  guard case .observation(let value) = event, value.account == account else { return nil }
-                  return value
-              }).first else { return nil }
+        let observation: QuotaObservation?
+        if let usageDatabase {
+            observation = try? UsageHistoryStore(
+                database: usageDatabase,
+                legacyURL: usageHistoryURL
+            ).latestObservation(account: account)
+        } else if let usageHistoryURL {
+            observation = try? UsageHistoryStore(url: usageHistoryURL).latestObservation(account: account)
+        } else {
+            observation = nil
+        }
+        guard let observation else { return nil }
         let dateFormatter = DateFormatter()
         dateFormatter.locale = Locale(identifier: "en_US_POSIX")
         dateFormatter.dateFormat = "yyyy-MM-dd HH:mm"
@@ -339,7 +415,17 @@ public struct NativeAccountService: Sendable {
     private func validateName(_ name: String) throws { guard !name.isEmpty, name.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" || $0 == "-" }) else { throw NativeAccountServiceError.invalidCredentials("账号名称无效") } }
 }
 
-public enum NativeAccountServiceError: LocalizedError, Sendable { case http(Int), authenticationExpired, invalidCredentials(String), invalidResponse
-    public var errorDescription: String? { switch self { case .http(let code): "查询用量失败（HTTP \(code)）"; case .authenticationExpired: "登录令牌已失效，请重新登录账号。"; case .invalidCredentials(let message): message; case .invalidResponse: "用量服务返回了无法识别的数据。" } }
+public enum NativeAccountServiceError: LocalizedError, Sendable { case http(Int), authenticationExpired, invalidCredentials(String), invalidResponse, transport(String), partialFailure([String])
+    public var errorDescription: String? { switch self { case .http(let code): "查询用量失败（HTTP \(code)）"; case .authenticationExpired: "登录令牌已失效，请重新登录账号。"; case .invalidCredentials(let message): message; case .invalidResponse: "用量服务返回了无法识别的数据。"; case .transport(let message): "网络查询失败：\(message)"; case .partialFailure(let accounts): "部分账号查询失败：\(accounts.joined(separator: ", "))" } }
     var isAuthenticationFailure: Bool { if case .authenticationExpired = self { true } else { false } }
+    var isTemporary: Bool {
+        switch self {
+        case .http(429), .transport:
+            true
+        case .http(let code):
+            (500...599).contains(code)
+        default:
+            false
+        }
+    }
 }

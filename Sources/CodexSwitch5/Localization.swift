@@ -126,6 +126,7 @@ enum AppLocalization {
         "秒": "Seconds",
         "分钟": "Minutes",
         "自动查询默认每 1 分钟执行；可自定义秒或分钟。全量查询时账号之间间隔 1 秒，单账号查询立即执行。": "Automatic refresh runs every minute by default. You can choose seconds or minutes. Full refreshes wait one second between accounts; single-account refreshes run immediately.",
+        "自动查询最短每 1 分钟执行；多账号查询会限制同时请求数，单账号查询立即执行。": "Automatic refresh runs no more than once per minute. Multi-account refreshes limit concurrent requests; single-account refreshes run immediately.",
         "自动查询默认每 1 分钟执行；可自定义秒或分钟。全量查询时账号之间间隔 1 秒。": "Automatic refresh runs every minute by default. You can choose seconds or minutes. Full refreshes wait one second between accounts.",
         "打开设置": "Open Settings",
         "增加账号": "Add Account",

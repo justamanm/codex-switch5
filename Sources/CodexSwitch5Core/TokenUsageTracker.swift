@@ -11,9 +11,7 @@ public struct TokenUsageTotals: Equatable, Sendable {
     public var autoReviewTokens = 0
     public var estimatedUSD = 0.0
     public var unpricedEvents = 0
-
     public init() {}
-
     public var total: Int { input + output }
 }
 
@@ -63,106 +61,173 @@ public enum ModelPricing {
 }
 
 public final class TokenUsageTracker: @unchecked Sendable {
-    private struct AccountActivation: Codable, Equatable {
+    private struct LegacyActivation: Codable {
         let account: String
         let timestamp: Date
     }
 
-    private struct State: Codable {
-        var activeAccount: String
-        var cursors: [String: UInt64]
-        var models: [String: String]
-        var events: [TokenUsageEvent]
-        var timeline: [AccountActivation]?
+    private struct LegacyState: Codable {
+        let activeAccount: String
+        let cursors: [String: UInt64]
+        let models: [String: String]
+        let events: [TokenUsageEvent]
+        let timeline: [LegacyActivation]?
+    }
+
+    private struct SessionFile {
+        let url: URL
+        let sourceID: String
+        let fileIdentifier: String
+        let size: UInt64
     }
 
     private let roots: [URL]
-    private let stateURL: URL
+    public let database: UsageDatabase
+    private let legacyStateURL: URL?
     private let now: @Sendable () -> Date
     private let decoder = JSONDecoder()
-    private let encoder = JSONEncoder()
 
-    public init(roots: [URL], stateURL: URL, now: @escaping @Sendable () -> Date = Date.init) {
+    public init(
+        roots: [URL],
+        database: UsageDatabase,
+        legacyStateURL: URL? = nil,
+        now: @escaping @Sendable () -> Date = Date.init
+    ) {
         self.roots = roots
-        self.stateURL = stateURL
+        self.database = database
+        self.legacyStateURL = legacyStateURL
         self.now = now
         decoder.dateDecodingStrategy = .iso8601
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     }
 
+    public convenience init(
+        roots: [URL], stateURL: URL,
+        now: @escaping @Sendable () -> Date = Date.init
+    ) {
+        self.init(
+            roots: roots,
+            database: UsageDatabase(url: stateURL.deletingLastPathComponent().appendingPathComponent("codex_switch5.sqlite3")),
+            legacyStateURL: stateURL,
+            now: now
+        )
+    }
+
+    /// 扫描新增会话行，并返回最近 30 天记录供使用习惯页计算。
+    @discardableResult
     public func scan(account: String) throws -> [TokenUsageEvent] {
+        try database.prepare()
         let files = sessionFiles()
-        guard var state = try loadState() else {
-            try save(State(
-                activeAccount: account,
-                cursors: endOffsets(files),
-                models: [:],
-                events: [],
-                timeline: [AccountActivation(account: account, timestamp: now())]
-            ))
-            return []
+        if try database.metadataValue(for: "token_tracking_initialized") == nil {
+            if try !importLegacyStateIfNeeded(files: files) {
+                try database.initializeTokenTracking(
+                    account: account,
+                    at: now(),
+                    cursors: files.map {
+                        SessionCursor(
+                            sourceID: $0.sourceID, path: $0.url.path, offset: $0.size,
+                            fileSize: $0.size, fileIdentifier: $0.fileIdentifier
+                        )
+                    }
+                )
+                return []
+            }
         }
 
-        if state.timeline == nil {
-            try backupLegacyState()
-            state.activeAccount = account
-            state.cursors = endOffsets(files)
-            state.models = [:]
-            state.events = []
-            state.timeline = [AccountActivation(account: account, timestamp: now())]
-            try save(state)
-            return []
+        var activations = try database.accountActivations()
+        if activations.isEmpty {
+            let activation = AccountActivationRecord(account: account, timestamp: now())
+            try database.appendAccountActivation(account: activation.account, timestamp: activation.timestamp)
+            activations = [activation]
         }
 
+        var additions: [TokenUsageEvent] = []
+        var changedCursors: [SessionCursor] = []
         for file in files {
-            let key = file.lastPathComponent
-            let start = state.cursors[key] ?? 0
-            let handle = try FileHandle(forReadingFrom: file)
+            var cursor = try database.cursor(for: file.sourceID)
+                ?? database.cursor(matchingPath: file.url.path)
+                ?? SessionCursor(
+                    sourceID: file.sourceID, path: file.url.path, offset: 0,
+                    fileSize: file.size, fileIdentifier: file.fileIdentifier
+                )
+            if cursor.sourceID != file.sourceID {
+                cursor = SessionCursor(
+                    sourceID: file.sourceID, path: file.url.path, offset: cursor.offset,
+                    fileSize: cursor.fileSize, fileIdentifier: file.fileIdentifier,
+                    generation: cursor.generation, model: cursor.model
+                )
+            }
+            if file.size == cursor.fileSize, cursor.offset == file.size, cursor.path == file.url.path,
+               cursor.fileIdentifier == file.fileIdentifier { continue }
+
+            var start = cursor.offset
+            var generation = cursor.generation
+            var model = cursor.model
+            if file.size < start || cursor.fileIdentifier != file.fileIdentifier {
+                start = 0
+                generation += 1
+                model = nil
+            }
+            let handle = try FileHandle(forReadingFrom: file.url)
             defer { try? handle.close() }
             try handle.seek(toOffset: start)
             let data = try handle.readToEnd() ?? Data()
-            guard !data.isEmpty else { continue }
-            if state.models[key] == nil, start > 0 {
-                state.models[key] = modelBeforeOffset(in: file, offset: start)
+            guard !data.isEmpty else {
+                changedCursors.append(SessionCursor(
+                    sourceID: file.sourceID, path: file.url.path, offset: start,
+                    fileSize: file.size, fileIdentifier: file.fileIdentifier,
+                    generation: generation, model: model
+                ))
+                continue
             }
+            if model == nil, start > 0 { model = modelBeforeOffset(in: file.url, offset: start) }
             guard let lastNewline = data.lastIndex(of: 0x0A) else { continue }
             let complete = data.prefix(through: lastNewline)
             var lineStart = complete.startIndex
             while lineStart < complete.endIndex {
                 guard let newline = complete[lineStart...].firstIndex(of: 0x0A) else { break }
-                let line = complete[lineStart..<newline]
-                let offset = start + UInt64(lineStart)
-                process(line: Data(line), fileKey: key, offset: offset, state: &state)
+                process(
+                    line: Data(complete[lineStart..<newline]), sourceID: file.sourceID,
+                    generation: generation, offset: start + UInt64(lineStart),
+                    activations: activations, model: &model, records: &additions
+                )
                 lineStart = complete.index(after: newline)
             }
-            state.cursors[key] = start + UInt64(complete.count)
+            changedCursors.append(SessionCursor(
+                sourceID: file.sourceID, path: file.url.path,
+                offset: start + UInt64(complete.count), fileSize: file.size,
+                fileIdentifier: file.fileIdentifier, generation: generation, model: model
+            ))
         }
-        repairUnknownModels(in: &state, files: files)
-        if state.timeline?.last?.account != account {
-            appendActivation(account: account, timestamp: now(), state: &state)
+        try database.saveScan(records: additions, cursors: changedCursors)
+        if activations.last?.account != account {
+            try database.appendAccountActivation(account: account, timestamp: now())
         }
-        state.activeAccount = account
-        try save(state)
-        return state.events
+        try performDailyRetentionIfNeeded()
+        let start = Calendar.current.date(byAdding: .day, value: -30, to: now()) ?? .distantPast
+        return try database.tokenUsageRecords(from: start, to: .distantFuture)
     }
 
     public func recordAccountChange(account: String, at timestamp: Date = Date()) throws {
-        let files = sessionFiles()
-        guard var state = try loadState(), state.timeline != nil else {
-            if FileManager.default.fileExists(atPath: stateURL.path) { try backupLegacyState() }
-            try save(State(
-                activeAccount: account,
-                cursors: endOffsets(files),
-                models: [:],
-                events: [],
-                timeline: [AccountActivation(account: account, timestamp: timestamp)]
-            ))
+        try database.prepare()
+        if try database.metadataValue(for: "token_tracking_initialized") == nil {
+            let files = sessionFiles()
+            try database.initializeTokenTracking(
+                account: account, at: timestamp,
+                cursors: files.map {
+                    SessionCursor(
+                        sourceID: $0.sourceID, path: $0.url.path, offset: $0.size,
+                        fileSize: $0.size, fileIdentifier: $0.fileIdentifier
+                    )
+                }
+            )
             return
         }
-        appendActivation(account: account, timestamp: timestamp, state: &state)
-        state.activeAccount = account
-        try save(state)
+        guard try database.accountActivations().last?.account != account else { return }
+        try database.appendAccountActivation(account: account, timestamp: timestamp)
+    }
+
+    public func totals(account: String? = nil, from start: Date, to end: Date = Date()) throws -> TokenUsageTotals {
+        try database.tokenTotals(account: account, from: start, to: end)
     }
 
     public func totals(events: [TokenUsageEvent], account: String, from start: Date, to end: Date = Date()) -> TokenUsageTotals {
@@ -185,18 +250,46 @@ public final class TokenUsageTracker: @unchecked Sendable {
         totals.cacheWriteInput += event.cacheWriteInput
         totals.output += event.output
         totals.reasoningOutput += event.reasoningOutput
-        if let price = ModelPricing.estimatedUSD(for: event) {
-            totals.estimatedUSD += price
-        } else {
-            totals.unpricedEvents += 1
-        }
+        if let price = ModelPricing.estimatedUSD(for: event) { totals.estimatedUSD += price }
+        else { totals.unpricedEvents += 1 }
     }
 
-    private func process(line: Data, fileKey: String, offset: UInt64, state: inout State) {
+    private func importLegacyStateIfNeeded(files: [SessionFile]) throws -> Bool {
+        guard let legacyStateURL,
+              FileManager.default.fileExists(atPath: legacyStateURL.path) else { return false }
+        let state = try decoder.decode(LegacyState.self, from: Data(contentsOf: legacyStateURL))
+        guard let timeline = state.timeline else { return false }
+        let byName = Dictionary(files.map { ($0.url.lastPathComponent, $0) }, uniquingKeysWith: { first, _ in first })
+        let cursors = state.cursors.compactMap { name, offset -> SessionCursor? in
+            guard let file = byName[name] else { return nil }
+            return SessionCursor(
+                sourceID: file.sourceID, path: file.url.path, offset: min(offset, file.size),
+                fileSize: file.size, fileIdentifier: file.fileIdentifier, model: state.models[name]
+            )
+        }
+        try database.importLegacyTokenState(
+            records: state.events,
+            cursors: cursors,
+            activations: timeline.map { AccountActivationRecord(account: $0.account, timestamp: $0.timestamp) }
+        )
+        return true
+    }
+
+    private func process(
+        line: Data, sourceID: String, generation: Int, offset: UInt64,
+        activations: [AccountActivationRecord], model: inout String?, records: inout [TokenUsageEvent]
+    ) {
         guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
               let payload = object["payload"] as? [String: Any] else { return }
-        if object["type"] as? String == "turn_context", let model = payload["model"] as? String {
-            state.models[fileKey] = model
+        if object["type"] as? String == "turn_context", let value = payload["model"] as? String {
+            model = value
+            return
+        }
+        if object["type"] as? String == "event_msg",
+           payload["type"] as? String == "thread_settings_applied",
+           let settings = payload["thread_settings"] as? [String: Any],
+           let value = settings["model"] as? String {
+            model = value
             return
         }
         guard object["type"] as? String == "event_msg",
@@ -204,16 +297,12 @@ public final class TokenUsageTracker: @unchecked Sendable {
               let info = payload["info"] as? [String: Any],
               let usage = info["last_token_usage"] as? [String: Any],
               let timestampText = object["timestamp"] as? String,
-              let timestamp = parseTimestamp(timestampText) else { return }
+              let timestamp = parseTimestamp(timestampText),
+              let account = activations.reversed().first(where: { $0.timestamp <= timestamp })?.account else { return }
         func number(_ key: String) -> Int { (usage[key] as? NSNumber)?.intValue ?? 0 }
-        guard let account = state.timeline?
-            .filter({ $0.timestamp <= timestamp })
-            .max(by: { $0.timestamp < $1.timestamp })?
-            .account
-        else { return }
-        state.events.append(TokenUsageEvent(
-            id: "\(fileKey):\(offset)", account: account, timestamp: timestamp,
-            model: state.models[fileKey] ?? "unknown", input: number("input_tokens"),
+        records.append(TokenUsageEvent(
+            id: "\(sourceID):\(generation):\(offset)", account: account, timestamp: timestamp,
+            model: model ?? "unknown", input: number("input_tokens"),
             cachedInput: number("cached_input_tokens"), cacheWriteInput: number("cache_write_input_tokens"),
             output: number("output_tokens"), reasoningOutput: number("reasoning_output_tokens")
         ))
@@ -225,83 +314,54 @@ public final class TokenUsageTracker: @unchecked Sendable {
         return fractional.date(from: value) ?? ISO8601DateFormatter().date(from: value)
     }
 
-    private func repairUnknownModels(in state: inout State, files: [URL]) {
-        let byName = Dictionary(files.map { ($0.lastPathComponent, $0) }, uniquingKeysWith: { first, _ in first })
-        let unknownByFile = Dictionary(grouping: state.events.indices.filter { state.events[$0].model == "unknown" }) {
-            String(state.events[$0].id.split(separator: ":", maxSplits: 1)[0])
-        }
-        for (key, indices) in unknownByFile {
-            guard let file = byName[key] else { continue }
-            let firstOffset = indices.compactMap {
-                UInt64(state.events[$0].id.split(separator: ":", maxSplits: 1).last ?? "")
-            }.min() ?? 0
-            guard let model = state.models[key] ?? modelBeforeOffset(in: file, offset: firstOffset) else { continue }
-            for index in indices {
-                let event = state.events[index]
-                state.events[index] = TokenUsageEvent(
-                    id: event.id, account: event.account, timestamp: event.timestamp, model: model,
-                    input: event.input, cachedInput: event.cachedInput, cacheWriteInput: event.cacheWriteInput,
-                    output: event.output, reasoningOutput: event.reasoningOutput
-                )
-            }
-        }
+    private func performDailyRetentionIfNeeded() throws {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: now())
+        let key = String(Int64(today.timeIntervalSince1970))
+        guard try database.metadataValue(for: "last_token_retention_day") != key else { return }
+        guard let cutoff = calendar.date(byAdding: .day, value: -90, to: today) else { return }
+        try database.performTokenRetention(before: cutoff, calendar: calendar)
+        try database.setMetadataValue(key, for: "last_token_retention_day")
     }
 
     private func modelBeforeOffset(in file: URL, offset: UInt64) -> String? {
         guard let handle = try? FileHandle(forReadingFrom: file) else { return nil }
         defer { try? handle.close() }
         var model: String?
-        guard let data = try? handle.read(upToCount: Int(offset)), !data.isEmpty else { return nil }
+        guard let data = try? handle.read(upToCount: Int(clamping: offset)), !data.isEmpty else { return nil }
         for line in data.split(separator: 0x0A) {
-                guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
-                      let payload = object["payload"] as? [String: Any] else { continue }
-                if object["type"] as? String == "turn_context", let value = payload["model"] as? String {
-                    model = value
-                } else if object["type"] as? String == "event_msg",
-                          payload["type"] as? String == "thread_settings_applied",
-                          let settings = payload["thread_settings"] as? [String: Any],
-                          let value = settings["model"] as? String {
-                    model = value
-                }
+            guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+                  let payload = object["payload"] as? [String: Any] else { continue }
+            if object["type"] as? String == "turn_context", let value = payload["model"] as? String {
+                model = value
+            } else if object["type"] as? String == "event_msg",
+                      payload["type"] as? String == "thread_settings_applied",
+                      let settings = payload["thread_settings"] as? [String: Any],
+                      let value = settings["model"] as? String {
+                model = value
+            }
         }
         return model
     }
 
-    private func sessionFiles() -> [URL] {
-        roots.flatMap { root -> [URL] in
-            guard let iterator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil) else { return [] }
-            return iterator.compactMap { $0 as? URL }.filter { $0.pathExtension == "jsonl" }
+    private func sessionFiles() -> [SessionFile] {
+        roots.flatMap { root -> [SessionFile] in
+            guard let iterator = FileManager.default.enumerator(
+                at: root,
+                includingPropertiesForKeys: [.fileSizeKey, .fileResourceIdentifierKey],
+                options: [.skipsHiddenFiles]
+            ) else { return [] }
+            return iterator.compactMap { item -> SessionFile? in
+                guard let url = item as? URL, url.pathExtension == "jsonl",
+                      let values = try? url.resourceValues(forKeys: [.fileSizeKey, .fileResourceIdentifierKey]),
+                      let size = values.fileSize else { return nil }
+                let identifier = values.fileResourceIdentifier.map(String.init(describing:))
+                    ?? url.standardizedFileURL.path
+                return SessionFile(
+                    url: url, sourceID: identifier, fileIdentifier: identifier,
+                    size: UInt64(max(0, size))
+                )
+            }
         }
-    }
-
-    private func endOffsets(_ files: [URL]) -> [String: UInt64] {
-        files.reduce(into: [:]) { result, file in
-            guard let size = try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize else { return }
-            result[file.lastPathComponent] = UInt64(size)
-        }
-    }
-
-    private func loadState() throws -> State? {
-        guard FileManager.default.fileExists(atPath: stateURL.path) else { return nil }
-        return try decoder.decode(State.self, from: Data(contentsOf: stateURL))
-    }
-
-    private func appendActivation(account: String, timestamp: Date, state: inout State) {
-        var timeline = state.timeline ?? []
-        if timeline.last?.account == account { return }
-        timeline.append(AccountActivation(account: account, timestamp: timestamp))
-        timeline.sort { $0.timestamp < $1.timestamp }
-        state.timeline = timeline
-    }
-
-    private func backupLegacyState() throws {
-        let backupURL = stateURL.deletingPathExtension().appendingPathExtension("pre-timeline-backup.json")
-        guard !FileManager.default.fileExists(atPath: backupURL.path) else { return }
-        try FileManager.default.copyItem(at: stateURL, to: backupURL)
-    }
-
-    private func save(_ state: State) throws {
-        try FileManager.default.createDirectory(at: stateURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try encoder.encode(state).write(to: stateURL, options: .atomic)
     }
 }

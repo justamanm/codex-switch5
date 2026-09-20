@@ -83,7 +83,9 @@ func checkUsageLearning() throws {
     precondition(stored.count == 4, "重复读取不得制造样本")
     let loaded = try UsageHistoryStore(url: url).load()
     precondition(loaded == samples, "历史应在重启后保留账号和时间")
-    let damagedURL = directory.appendingPathComponent("damaged.jsonl")
+    let damagedDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("usage-learning-damaged-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: damagedDirectory, withIntermediateDirectories: true)
+    let damagedURL = damagedDirectory.appendingPathComponent("damaged.jsonl")
     let damaged = Data("{broken".utf8)
     try damaged.write(to: damagedURL)
     do {

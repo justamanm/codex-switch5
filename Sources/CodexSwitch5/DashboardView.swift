@@ -652,17 +652,10 @@ struct DashboardView: View {
                         if value < 1 { model.refreshIntervalValue = 1 }
                         model.configureAutomaticRefresh()
                     }
-                Picker(model.text("时间单位"), selection: $model.refreshIntervalUnit) {
-                    Text(model.text("秒")).tag("seconds")
-                    Text(model.text("分钟")).tag("minutes")
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .frame(width: 120)
-                .onChange(of: model.refreshIntervalUnit) { _, _ in model.configureAutomaticRefresh() }
+                Text(model.text("分钟")).foregroundStyle(.secondary)
                 }
             }
-            Text(model.text("自动查询默认每 1 分钟执行；可自定义秒或分钟。全量查询时账号之间间隔 1 秒，单账号查询立即执行。"))
+            Text(model.text("自动查询最短每 1 分钟执行；多账号查询会限制同时请求数，单账号查询立即执行。"))
                 .font(.system(size: 14)).foregroundStyle(.secondary)
             Divider()
             HStack {

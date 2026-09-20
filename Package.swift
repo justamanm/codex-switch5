@@ -9,7 +9,8 @@ let package = Package(
         .executable(name: "CodexSwitch5", targets: ["CodexSwitch5"]),
     ],
     targets: [
-        .target(name: "CodexSwitch5Core"),
+        .systemLibrary(name: "CSQLite"),
+        .target(name: "CodexSwitch5Core", dependencies: ["CSQLite"]),
         .executableTarget(
             name: "CodexSwitch5",
             dependencies: ["CodexSwitch5Core"]
