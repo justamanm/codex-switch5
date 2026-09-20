@@ -237,15 +237,9 @@ struct DashboardView: View {
         .sheet(
             isPresented: Binding(
                 get: { model.editingAccount != nil },
-                set: { if !$0 { model.editingAccount = nil } }
+                set: { if !$0 { model.cancelEditingAccount() } }
             )
-        ) { aliasSheet }
-        .sheet(
-            isPresented: Binding(
-                get: { model.editingNoteAccount != nil },
-                set: { if !$0 { model.cancelEditingNote() } }
-            )
-        ) { noteSheet }
+        ) { accountDetailsSheet }
     }
 
     private var pageHeader: some View {
@@ -492,8 +486,7 @@ struct DashboardView: View {
                         isSwitching: model.isSwitching,
                         refreshAction: { model.refresh(account: account.name) },
                         switchAction: { model.requestSwitch(to: account.name) },
-                        aliasAction: { model.beginEditingAlias(account.name) },
-                        noteAction: { model.beginEditingNote(account.name) },
+                        editAction: { model.beginEditingAccount(account.name) },
                         removeAction: { model.requestRemove(account.name) },
                         reauthenticateAction: { model.prepareReauthentication(for: account.name) },
                         allowsDragging: !model.isSwitching,
@@ -618,7 +611,7 @@ struct DashboardView: View {
                 usesCompactLayout: usesCompactLayout,
                 isRefreshing: model.refreshingAccounts.contains(account.name),
                 isSwitching: model.isSwitching,
-                refreshAction: {}, switchAction: {}, aliasAction: {}, noteAction: {}, removeAction: {}, reauthenticateAction: {},
+                refreshAction: {}, switchAction: {}, editAction: {}, removeAction: {}, reauthenticateAction: {},
                 allowsDragging: false,
                 isBeingDragged: false,
                 dragChanged: { _ in }, dragEnded: {}
@@ -694,6 +687,7 @@ struct DashboardView: View {
         }
         .padding(24)
         .frame(width: 520)
+        .clearsInitialTextFocus()
     }
 
     private func errorCard(_ error: String) -> some View {
@@ -1403,38 +1397,42 @@ struct DashboardView: View {
         .padding(26).frame(width: 540)
     }
 
-    private var aliasSheet: some View {
+    private var accountDetailsSheet: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text(model.text("设置账号别名")).font(.title2.bold())
-            Text(model.text("界面只显示别名；鼠标停留在别名上仍可查看用户名和邮箱。"))
-                .foregroundStyle(.secondary)
-            TextField(model.text("别名"), text: $model.editingAlias)
-                .textFieldStyle(.roundedBorder)
-            HStack {
-                Spacer()
-                Button(model.text("取消")) { model.editingAccount = nil }
-                Button(model.text("保存")) { model.saveAlias() }.buttonStyle(.borderedProminent)
+            Text(model.text("修改账号")).font(.title2.bold())
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 14) {
+                GridRow {
+                    Text(model.text("别名"))
+                    TextField(model.text("别名"), text: $model.editingAlias)
+                        .textFieldStyle(.roundedBorder)
+                }
+                GridRow {
+                    Text(model.text("备注"))
+                    TextField(model.text("备注"), text: $model.editingNote)
+                        .textFieldStyle(.roundedBorder)
+                }
+                GridRow {
+                    Text(model.text("所属分组"))
+                    Picker("", selection: $model.editingGroupID) {
+                        ForEach(model.accountGroupState.groups) { group in
+                            Text(group.name).tag(Optional(group.id))
+                        }
+                        Text(model.text("未分组")).tag(UUID?.none)
+                    }
+                    .labelsHidden()
+                }
             }
-        }
-        .padding(24).frame(width: 420)
-    }
-
-    private var noteSheet: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(model.text("账号备注")).font(.title2.bold())
-            TextField(model.text("备注"), text: $model.editingNote)
-                .textFieldStyle(.roundedBorder)
-                .onSubmit { model.saveNote() }
             HStack {
                 Spacer()
-                Button(model.text("取消")) { model.cancelEditingNote() }
+                Button(model.text("取消")) { model.cancelEditingAccount() }
                     .keyboardShortcut(.cancelAction)
-                Button(model.text("保存")) { model.saveNote() }
+                Button(model.text("保存")) { model.saveAccountDetails() }
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.defaultAction)
             }
         }
         .padding(24).frame(width: 420)
+        .clearsInitialTextFocus()
     }
 }
 
@@ -1681,6 +1679,7 @@ private struct AccountGroupManagerSheet: View {
             .background(.bar)
         }
         .frame(width: 640, height: 560)
+        .clearsInitialTextFocus()
         .onAppear {
             selectGroup(model.accountGroupState.groups.first?.id)
             Task { @MainActor in
@@ -1796,8 +1795,7 @@ private struct AccountDashboardRow: View {
     let isSwitching: Bool
     let refreshAction: () -> Void
     let switchAction: () -> Void
-    let aliasAction: () -> Void
-    let noteAction: () -> Void
+    let editAction: () -> Void
     let removeAction: () -> Void
     let reauthenticateAction: () -> Void
     let allowsDragging: Bool
@@ -1836,7 +1834,7 @@ private struct AccountDashboardRow: View {
                 HoverAccountName(name: displayName, identityHelp: identityHelp, font: .system(size: 14, weight: .semibold))
                     .lineLimit(1)
                     .layoutPriority(1)
-                Button(action: noteAction) {
+                Button(action: editAction) {
                     Image(systemName: "square.and.pencil")
                         .font(.system(size: 12))
                         .frame(width: 20, height: 20)
@@ -1844,8 +1842,8 @@ private struct AccountDashboardRow: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
-                .help(model.text(model.note(for: account.name) == nil ? "添加备注" : "编辑备注"))
-                .accessibilityLabel(model.text(model.note(for: account.name) == nil ? "添加备注" : "编辑备注"))
+                .help(model.text("修改账号"))
+                .accessibilityLabel(model.text("修改账号"))
             }
             if account.authInvalid {
                 InvalidAccountBadge(invalidSince: account.authInvalidSince, reauthenticateAction: reauthenticateAction)
@@ -1894,20 +1892,6 @@ private struct AccountDashboardRow: View {
             .disabled(isRefreshing || isSwitching)
 
             Menu {
-                Button(model.text("设置别名"), action: aliasAction)
-                Menu(model.text("更换分组")) {
-                    ForEach(model.accountGroupState.groups) { group in
-                        Button {
-                            model.assignAccounts([account.name], to: group.id)
-                        } label: {
-                            if model.groupID(for: account.name) == group.id {
-                                Label(group.name, systemImage: "checkmark")
-                            } else { Text(group.name) }
-                        }
-                    }
-                    Button(model.text("未分组")) { model.assignAccounts([account.name], to: nil) }
-                }
-                Divider()
                 Button(model.text("移除账号"), role: .destructive, action: removeAction)
                     .disabled(isCurrent)
             } label: {

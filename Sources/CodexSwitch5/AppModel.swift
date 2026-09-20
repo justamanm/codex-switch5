@@ -33,8 +33,8 @@ final class AppModel: ObservableObject {
     @Published var notice: String?
     @Published var editingAccount: String?
     @Published var editingAlias = ""
-    @Published var editingNoteAccount: String?
     @Published var editingNote = ""
+    @Published var editingGroupID: UUID?
     @Published var removingAccount: String?
     @Published var accountGroupState = AccountGroupState()
     @Published var pendingAddAccountGroupID: UUID?
@@ -388,17 +388,18 @@ final class AppModel: ObservableObject {
         return identityText + "\n" + text("备注：%@", note)
     }
 
-    func beginEditingAlias(_ account: String) {
+    func beginEditingAccount(_ account: String) {
         editingAccount = account
-        editingAlias = aliases[account] ?? displayName(for: account)
+        editingAlias = aliases[account] ?? ""
+        editingNote = accountNotes[account] ?? ""
+        editingGroupID = groupID(for: account)
     }
 
-    func saveAlias() {
-        guard let account = editingAccount else { return }
-        let value = editingAlias.trimmingCharacters(in: .whitespacesAndNewlines)
-        if value.isEmpty { aliases.removeValue(forKey: account) } else { aliases[account] = value }
-        saveAliases()
+    func cancelEditingAccount() {
         editingAccount = nil
+        editingAlias = ""
+        editingNote = ""
+        editingGroupID = nil
     }
 
     func note(for account: String) -> String? {
@@ -406,32 +407,36 @@ final class AppModel: ObservableObject {
         return value.isEmpty ? nil : value
     }
 
-    func beginEditingNote(_ account: String) {
-        editingNoteAccount = account
-        editingNote = accountNotes[account] ?? ""
-    }
-
-    func cancelEditingNote() {
-        editingNoteAccount = nil
-        editingNote = ""
-    }
-
-    func saveNote() {
-        guard let account = editingNoteAccount else { return }
-        let value = editingNote.trimmingCharacters(in: .whitespacesAndNewlines)
-        var updated = accountNotes
-        if value.isEmpty {
-            updated.removeValue(forKey: account)
+    func saveAccountDetails() {
+        guard let account = editingAccount else { return }
+        let alias = editingAlias.trimmingCharacters(in: .whitespacesAndNewlines)
+        let note = editingNote.trimmingCharacters(in: .whitespacesAndNewlines)
+        var updatedAliases = aliases
+        var updatedNotes = accountNotes
+        if alias.isEmpty {
+            updatedAliases.removeValue(forKey: account)
         } else {
-            updated[account] = value
+            updatedAliases[account] = alias
+        }
+        if note.isEmpty {
+            updatedNotes.removeValue(forKey: account)
+        } else {
+            updatedNotes[account] = note
         }
         do {
-            try accountNoteStore.save(updated)
-            accountNotes = updated
-            cancelEditingNote()
+            try accountNoteStore.save(updatedNotes)
         } catch {
             lastError = text("无法保存账号备注：%@", error.localizedDescription)
+            return
         }
+        aliases = updatedAliases
+        saveAliases()
+        accountNotes = updatedNotes
+        if groupID(for: account) != editingGroupID,
+           !assignAccounts([account], to: editingGroupID) {
+            return
+        }
+        cancelEditingAccount()
     }
 
     func prepareAddAccount() {
@@ -1338,11 +1343,14 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func assignAccounts(_ accounts: Set<String>, to groupID: UUID?) {
+    @discardableResult
+    func assignAccounts(_ accounts: Set<String>, to groupID: UUID?) -> Bool {
         let previous = accountGroupState
         if updateAccountGroups({ $0.assign(accounts: accounts, to: groupID) }) {
             recordGroupChanges(for: accounts, from: previous, to: accountGroupState)
+            return true
         }
+        return false
     }
 
     private func validReauthenticationReplacementAccount(

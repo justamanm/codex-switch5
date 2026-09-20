@@ -35,6 +35,7 @@ struct CodexSwitch5App: App {
                 LabeledContent(model.text("版本"), value: AppVersion.display)
             }
             .padding(20).frame(width: 360)
+            .clearsInitialTextFocus()
             .environment(\.locale, model.appLanguage.locale)
         }
     }

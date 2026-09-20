@@ -84,17 +84,15 @@ The account list shows **remaining 5-hour quota, remaining weekly quota, and the
 | --- | --- |
 | Refresh all accounts | Refresh at the top right |
 | Refresh one account | Refresh icon beside that account |
-| Give an account a recognizable name | Account’s “…” menu → alias action |
-| Add or edit an account note | Note icon beside the account name; an existing note is filled in automatically |
-| Delete an account note | Open the note editor, clear the text, and save |
-| Change an account’s group | “…” → change-group action |
+| Edit an account alias, note, or group | Select the edit icon beside the account name; existing content and the current group are filled in automatically |
+| Delete an account alias or note | Open the account editor, clear the corresponding text, and save |
 | Create or manage groups | Groups above the list → group manager |
 | Display accounts by group | Groups → grouped display option |
 | Reorder manually | Drag the handle on the left of an account; restore manual sorting in Sort first if needed |
 | Sort by rules | Sort above the list |
 | View account information and note | Hover over the account name |
 
-Removing an account through the “…” menu moves its credentials to Trash after confirmation. **It does not merely hide the list entry.** This is different from uninstalling Switch5.
+The “…” menu contains only the remove-account action. After confirmation, it moves the account credentials to Trash. **It does not merely hide the list entry.** This is different from uninstalling Switch5.
 
 ### Quota refresh rules
 
