@@ -12,7 +12,7 @@
 
 - 标签固定为 `latest`。
 - Release 标题固定为 `Codex Switch5 Latest`。
-- 每次 `main` 推送成功构建后，用新 DMG 替换 Release 中的旧文件。
+- 每次 `main` 推送成功构建后，用新 DMG 替换 Release 中的同名文件。
 - Release 说明记录本次提交号和构建时间。
 - 固定下载地址不会随提交变化。
 

@@ -6,7 +6,7 @@
 <p align="center">5 小时与周额度一目了然，也能查看各账号的 Token 用量。</p>
 
 <p align="center">
-  <a href="https://github.com/justamanm/codex-switcher/releases/tag/latest"><strong>下载 macOS 版</strong></a> ·
+  <a href="https://github.com/justamanm/codex-switch5/releases/tag/latest"><strong>下载 macOS 版</strong></a> ·
   <a href="docs/使用说明_zh.md">使用说明</a> ·
   <a href="README_en.md">English</a><br>
   macOS 14+
@@ -63,4 +63,4 @@
 
 仅删除 Codex Switch5 应用，会保留原有的本地账号凭据，不会因此影响 ChatGPT／Codex 的登录和使用。本应用的设置与统计记录也会保留；卸载不会自动恢复到切换前的账号。文件位置、登录流程及统计口径见[使用说明](docs/使用说明_zh.md)。
 
-[反馈问题](https://github.com/justamanm/codex-switcher/issues) · [查看其他版本](https://github.com/justamanm/codex-switcher/releases)
+[反馈问题](https://github.com/justamanm/codex-switch5/issues)

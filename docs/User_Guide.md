@@ -11,7 +11,7 @@ Updated: September 20, 2026.
 - [View usage statistics](#view-usage-statistics)
 - [Switch history and settings](#switch-history-and-settings)
 - [Troubleshooting](#troubleshooting)
-- [Update and uninstall](#update-and-uninstall)
+- [Uninstall](#uninstall)
 - [Statistics sources and calculations](#statistics-sources-and-calculations)
 - [Local files and data storage](#local-files-and-data-storage)
 
@@ -106,7 +106,7 @@ Removing an account through the “…” menu moves its credentials to Trash af
 
 Automatic refresh schedules the next round after the current round finishes, so quota queries do not overlap. Temporary network failures, HTTP 429, and server errors are retried up to twice. A failed account does not discard successful results from other accounts or erase its last valid quota.
 
-If sign-in expires, the app keeps the last valid quota, reset-card count, and known reset-card expiration times, and marks the account for sign-in again. Automatic refresh skips accounts already marked this way. A manual refresh can try the account again; after sign-in becomes valid and the reset-card details are retrieved successfully, the saved expiration times are updated. An explicit response of zero reset cards clears the old expiration times.
+If sign-in expires, the app keeps the last valid quota, reset-card count, and known reset-card expiration times, and marks the account for sign-in again. Automatic refresh skips accounts already marked this way. A manual refresh can try the account again; after sign-in becomes valid and the reset-card details are retrieved successfully, the saved expiration times are updated. An explicit response of zero reset cards clears the saved expiration times.
 
 ## View usage statistics
 
@@ -150,9 +150,7 @@ Open settings with the gear at the top left to choose Chinese or English, enable
 
 If the issue persists, [report it](https://github.com/justamanm/codex-switch5/issues) with reproduction steps, the error message, and app version. Hide personal account details in screenshots and never attach credential files.
 
-## Update and uninstall
-
-To update, quit the app and replace it in Applications with the new version. Credentials, groups, settings, and statistics live outside the app bundle and normally remain available.
+## Uninstall
 
 Moving only Codex Switch5 to Trash preserves existing local account credentials and does not disrupt ChatGPT or Codex sign-in or use. It does not switch back to the previously used account. App settings and statistics also remain and can be read after reinstalling.
 
@@ -194,7 +192,7 @@ These also reside in `~/.codex/`. Account archives still contain Codex credentia
 
 | File | Purpose |
 | --- | --- |
-| `auth.json.<account-name>` | Archived Codex credentials, managed by renaming; compatible archives from other tools can also be recognized |
+| `auth.json.<account-name>` | Archived Codex credentials managed by renaming |
 | `.codex-switch5-auth-<UUID>` | Temporarily holds active credentials during switching |
 | `.codex-switch5-stale-<UUID>` | Temporarily holds an older archive during switching |
 
@@ -214,17 +212,10 @@ Directory: `~/Library/Application Support/Codex Switch5/`.
 | `.active-auth-profile` | App-generated: current account-name marker |
 | `codex_switch5.sqlite3` | Main app database: individual Token-usage records, reading progress, quota history, and long-term summaries |
 | `codex_switch5.sqlite3-wal`, `codex_switch5.sqlite3-shm` | SQLite working files that may exist while the app is running |
-| `codex_switch5_usage_history.jsonl` | One-time import source retained as a backup; new records are no longer written here |
-| `codex_switch5_token_usage.json` | One-time import source retained as a backup; new records are no longer written here |
-| `codex_switch5_token_usage.pre-timeline-backup.json` | Older migration backup; may not exist |
 | `codex_switch5_switch_history.json` | App-generated: switching, sign-in, and related operation history |
 | `codex_switch5_weekly_quota_projection.json` | App-generated: weekly quota estimates |
 | `.codex-switch5-addition-pending.json` | App-generated: recovery state for unfinished account additions, created when needed |
 | `.codex-switch5-reauthentication-pending.json` | App-generated: recovery state for unfinished sign-in renewals, created when needed |
-
-Older versions stored these files in `~/.codex/`. On startup, an old file is moved to the new directory only if the destination does not already exist. Existing destination files are not overwritten.
-
-Legacy files can migrate on the next launch, so check the old location as well when tracing data sources.
 
 ### System preferences
 
@@ -235,22 +226,9 @@ Managed by macOS for this app. It stores:
 - Language, automatic refresh setting, and interval.
 - Manual account order, sorting rules, and grouped display setting.
 - Statistics sorting options.
-- Current account name and migration markers.
+- Current account name.
 
 macOS caches preferences, so direct file edits may not take effect immediately. Use the system preferences interface to manage them.
-
-### Application and build outputs
-
-| Location | Contents |
-| --- | --- |
-| `/Applications/Codex Switch5.app` | Usual installation location; another location may be chosen |
-| `<project-directory>/dist/Codex Switch5.app` | Locally built application |
-| `<project-directory>/dist/Codex-Switch5.dmg` | Installer produced by the packaging script; not updated by every app build |
-| `.app/Contents/MacOS/CodexSwitch5` | Executable |
-| `.app/Contents/Resources/AppIcon.icns`, `AppIcon.png` | App icons |
-| `.app/Contents/Info.plist`, `PkgInfo` | App name, version, identifier, and related information |
-
-The app bundle does not contain users’ account archives, groups, or usage records.
 
 ### What removal deletes
 
@@ -259,13 +237,6 @@ The app bundle does not contain users’ account archives, groups, or usage reco
 | Move one `.app` to Trash | Moves that app bundle and its code and icons; data, preferences, credentials, and sessions remain |
 | Empty Trash containing the app | Deletes the trashed bundle, without automatically clearing external data |
 | Delete a DMG | Deletes only the installer, not the installed app or user data |
-| Replace the old `.app` with a new copy | Normally preserves external data for the next launch |
 | Use a third-party uninstaller and select related files | Depends on the tool and selections; it may also remove app data and preferences |
 
 Switch5 has no uninstall routine that automatically clears external files when its `.app` is deleted. Ordinary app removal does not delete credentials in `~/.codex/`.
-
-### Compatibility with the previous name
-
-The application, modules, and newly created data files use Codex Switch5. On startup, old `codex_switcher_*` and `.codex-switcher-*` files in the app data directory or `~/.codex/` migrate to their new names if the destination is absent. Existing destination files are preserved. Preferences from `local.justaman.codex-switcher` migrate once; the old domain remains for compatibility. Ordinary app removal still preserves `~/Library/Application Support/Codex Switch5/`.
-
-The GitHub repository is now `justamanm/codex-switch5`. A local checkout may still use the directory name `codex_switcher`; renaming the product does not rename local folders automatically.

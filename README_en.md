@@ -6,7 +6,7 @@
 <p align="center">See 5-hour and weekly quota at a glance, with Token usage for each account.</p>
 
 <p align="center">
-  <a href="https://github.com/justamanm/codex-switcher/releases/tag/latest"><strong>Download for macOS</strong></a> ·
+  <a href="https://github.com/justamanm/codex-switch5/releases/tag/latest"><strong>Download for macOS</strong></a> ·
   <a href="docs/User_Guide.md">User guide</a> ·
   <a href="README.md">中文</a><br>
   macOS 14+
@@ -63,4 +63,4 @@ Credentials and statistics are stored on your Mac. Quota queries connect to Open
 
 Deleting only the Codex Switch5 app preserves your existing local account credentials and does not disrupt ChatGPT or Codex sign-in or use. App settings and statistics also remain; uninstalling does not automatically restore the account used before switching. See the [user guide](docs/User_Guide.md) for file locations, sign-in behavior, and how statistics are calculated.
 
-[Report an issue](https://github.com/justamanm/codex-switcher/issues) · [Other releases](https://github.com/justamanm/codex-switcher/releases)
+[Report an issue](https://github.com/justamanm/codex-switch5/issues)
