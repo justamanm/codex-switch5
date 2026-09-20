@@ -7,7 +7,7 @@
 ## 数据边界
 
 - 首次启用时把现有会话文件位置记为起点，旧内容不进入统计。
-- 后续只读取 `~/.codex/sessions` 和 `~/.codex/archived_sessions` 新增内容。
+- 后续只在本地读取 `~/.codex/sessions` 和 `~/.codex/archived_sessions` 的新增内容。
 - 每条记录保存账号、时间、模型、输入、缓存输入、缓存写入、输出和推理 Token。
 - Credit 只展示用量接口返回的余额；余额为空时显示“未启用”。
 - 价格使用记录中的模型和随应用发布的 OpenAI API 单价计算，并明确标为估算值。

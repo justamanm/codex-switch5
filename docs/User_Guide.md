@@ -170,16 +170,16 @@ Quota query results and individual Token-usage records are stored in the local S
 
 `~` means the current macOS user’s home directory.
 
-The app discovers accounts in `~/.codex/`, then reads its own quota, grouping, and history data. The application and user data are stored separately; deleting the `.app` does not clear account data.
+The app reads `~/.codex/` locally to discover accounts, then reads quota, grouping, and history data stored on the Mac. The application and user data are stored separately; deleting the `.app` does not clear account data.
 
 ### How Switch5 uses `~/.codex/`
 
-Codex credentials and local session records are stored in `~/.codex/`. Switch5 reads this directory to discover accounts and count Tokens, but it does not rewrite, move, or delete session records. Switch5 stores its own quota, grouping, settings, and statistics in `~/Library/Application Support/Codex Switch5/`, outside the Codex session directory.
+Codex credentials and local session records are stored in `~/.codex/`. Switch5 reads this directory locally to discover accounts and count Tokens; it does not rewrite, move, or delete session records. Switch5 stores its own quota, grouping, settings, and statistics in `~/Library/Application Support/Codex Switch5/`, outside the Codex session directory.
 
 | Action | What Switch5 does |
 | --- | --- |
-| Launch, account discovery, and Token statistics | Reads `auth.json`, account archives, `sessions/`, and `archived_sessions/` without modifying session contents |
-| Quota query | Reads the relevant credential and connects to OpenAI services. Credential and local session files are not uploaded. If an access token has expired and refresh succeeds, the updated tokens are written back to the same credential file |
+| Launch, account discovery, and Token statistics | Reads `auth.json`, account archives, `sessions/`, and `archived_sessions/` locally without modifying session contents |
+| Quota query | Reads the relevant credential locally and connects to OpenAI services. Credential and local session files are not uploaded. If an access token has expired and refresh succeeds, the updated tokens are written back to the same credential file |
 | Account switch | Renames credential files between `auth.json` and `auth.json.<account-name>`. The switch logic does not rewrite credential contents and attempts to restore the original file state if switching fails |
 | Add account or sign in again | Archives and restores existing credentials. The new `auth.json` is created by the ChatGPT or Codex CLI sign-in flow. A replaced account archive may be removed after the operation succeeds |
 | Remove account | Moves the corresponding `auth.json.<account-name>` to Trash after confirmation |
@@ -192,9 +192,9 @@ Directory: `~/.codex/`.
 
 | Path | Owner and source | How Switch5 uses it |
 | --- | --- | --- |
-| `auth.json` | Codex’s current login credentials, produced by sign-in | Reads identity; replaces the contents or file during switching; may update it when refreshing login tokens |
-| `sessions/` | Codex’s original session records | Reads Token usage without moving original sessions |
-| `archived_sessions/` | Codex’s original archived sessions | Reads Token usage without moving original sessions |
+| `auth.json` | Codex’s current login credentials, produced by sign-in | Reads identity locally; replaces the contents or file during switching; may update it when refreshing login tokens |
+| `sessions/` | Codex’s original session records | Reads Token usage locally without moving original sessions |
+| `archived_sessions/` | Codex’s original archived sessions | Reads Token usage locally without moving original sessions |
 
 Although `auth.json` belongs to Codex, Switch5 uses it in the situations listed above. Do not move other Codex files, such as `config.toml`, when resetting Switch5.
 
