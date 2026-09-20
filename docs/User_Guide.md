@@ -172,6 +172,20 @@ Quota query results and individual Token-usage records are stored in the local S
 
 The app discovers accounts in `~/.codex/`, then reads its own quota, grouping, and history data. The application and user data are stored separately; deleting the `.app` does not clear account data.
 
+### Operations within `~/.codex/`
+
+`~/.codex/` is the existing Codex data directory that Switch5 accesses, so it is the main security boundary users should understand. Switch5 stores its own quota, grouping, settings, and statistics in `~/Library/Application Support/Codex Switch5/`, outside the Codex session directory.
+
+| Situation | What Switch5 does in `~/.codex/` |
+| --- | --- |
+| Launch, account discovery, and Token statistics | Reads `auth.json`, account archives, `sessions/`, and `archived_sessions/` without modifying session contents |
+| Quota query | Reads the relevant credential and connects to OpenAI services. Credential and local session files are not uploaded. If an access token has expired and refresh succeeds, the updated tokens are written back to the same credential file |
+| Account switch | Renames credential files between `auth.json` and `auth.json.<account-name>`. The switch logic does not rewrite credential contents and attempts to restore the original file state if switching fails |
+| Add account or sign in again | Archives and restores existing credentials. The new `auth.json` is created by the ChatGPT or Codex CLI sign-in flow. A replaced account archive may be removed after the operation succeeds |
+| Remove account | Moves the corresponding `auth.json.<account-name>` to Trash after user confirmation |
+
+Switch5 does not rewrite, move, or delete session records in `sessions/` or `archived_sessions/`. Credential files are not uploaded as files; quota queries use the access token they contain for authentication.
+
 ### Original Codex directories and files
 
 Directory: `~/.codex/`.
