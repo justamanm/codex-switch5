@@ -16,17 +16,6 @@ public enum AppDataDirectory {
         ".codex-switch5-reauthentication-pending.json"
     ]
 
-    /// 只补充新偏好域尚未保存的键，保留旧域作为兼容备份。
-    public static func migratePreferences(defaults: UserDefaults = .standard) {
-        let old = defaults.persistentDomain(forName: "local.justaman.codex-switcher") ?? [:]
-        var current = defaults.persistentDomain(forName: "local.justaman.codex-switch5") ?? [:]
-        // 一次性迁移，避免用户清除某项新设置后旧值再次出现。
-        guard current["didMigrateSwitch5Name"] == nil else { return }
-        for (key, value) in old where current[key] == nil { current[key] = value }
-        current["didMigrateSwitch5Name"] = true
-        defaults.setPersistentDomain(current, forName: "local.justaman.codex-switch5")
-    }
-
     public static func url(fileManager: FileManager = .default) -> URL {
         fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Codex Switch5", isDirectory: true)
@@ -42,12 +31,8 @@ public enum AppDataDirectory {
         try fileManager.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
         var moved: [String] = []
         for name in legacyFileNames {
-            let oldName = name.replacingOccurrences(of: "codex_switch5", with: "codex_switcher")
-                .replacingOccurrences(of: "codex-switch5", with: "codex-switcher")
             let destination = destinationDirectory.appendingPathComponent(name)
-            let candidates = [destinationDirectory.appendingPathComponent(oldName),
-                              legacyDirectory.appendingPathComponent(name),
-                              legacyDirectory.appendingPathComponent(oldName)]
+            let candidates = [legacyDirectory.appendingPathComponent(name)]
             for source in candidates where source != destination {
                 guard fileManager.fileExists(atPath: source.path),
                       !fileManager.fileExists(atPath: destination.path) else { continue }

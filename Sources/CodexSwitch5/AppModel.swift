@@ -114,7 +114,6 @@ final class AppModel: ObservableObject {
     }
 
     init() {
-        AppDataDirectory.migratePreferences()
         appDataDirectory = AppDataDirectory.url()
         do {
             _ = try AppDataDirectory.migrateLegacyFiles(from: codexDirectory, to: appDataDirectory)

@@ -858,26 +858,3 @@ func checkStartupAccounts() throws {
     print("启动检查通过：空目录、首次登录、重装、缓存缺失、旧名称、同名账号、无效存档、仅剩存档及防覆盖。")
 }
 try checkStartupAccounts()
-
-func checkOldProductNameMigration() throws {
-    let files = FileManager.default
-    let root = files.temporaryDirectory.appendingPathComponent("switch5-name-\(UUID().uuidString)")
-    let legacy = root.appendingPathComponent("codex")
-    let destination = root.appendingPathComponent("data")
-    try files.createDirectory(at: legacy, withIntermediateDirectories: true)
-    try files.createDirectory(at: destination, withIntermediateDirectories: true)
-    let old = destination.appendingPathComponent("codex_switcher_account_groups.json")
-    try Data("preserved-groups".utf8).write(to: old)
-    let pending = legacy.appendingPathComponent(".codex-switcher-addition-pending.json")
-    try Data("pending".utf8).write(to: pending)
-    let moved = try AppDataDirectory.migrateLegacyFiles(from: legacy, to: destination)
-    precondition(moved.contains("codex_switch5_account_groups.json"))
-    precondition(moved.contains(".codex-switch5-addition-pending.json"))
-    let content = try Data(contentsOf: destination.appendingPathComponent("codex_switch5_account_groups.json"))
-    precondition(content == Data("preserved-groups".utf8))
-    try Data("conflict".utf8).write(to: old)
-    _ = try AppDataDirectory.migrateLegacyFiles(from: legacy, to: destination)
-    precondition(files.fileExists(atPath: old.path), "名称冲突必须保留旧文件")
-    print("旧名称迁移检查通过：数据目录、旧目录、待恢复操作和冲突保留。")
-}
-try checkOldProductNameMigration()
