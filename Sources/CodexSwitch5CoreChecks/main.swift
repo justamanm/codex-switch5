@@ -871,3 +871,4 @@ func checkStartupAccounts() throws {
     print("启动检查通过：空目录、首次登录、重装、缓存缺失、旧名称、同名账号、无效存档、仅剩存档及防覆盖。")
 }
 try checkStartupAccounts()
+try await checkQuotaRequestIsolation()

@@ -303,8 +303,12 @@ public struct NativeAccountService: Sendable {
     }
 
     private func whamRequest(path: String, accessToken: String, accountID: String?) -> URLRequest {
-        var request = URLRequest(url: URL(string: "https://chatgpt.com/backend-api/wham/\(path)")!)
-        request.timeoutInterval = 20
+        var request = URLRequest(
+            url: URL(string: "https://chatgpt.com/backend-api/wham/\(path)")!,
+            cachePolicy: .reloadIgnoringLocalCacheData,
+            timeoutInterval: 20
+        )
+        request.httpShouldHandleCookies = false
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue("Codex Switch5", forHTTPHeaderField: "User-Agent")
         if let accountID, !accountID.isEmpty { request.setValue(accountID, forHTTPHeaderField: "ChatGPT-Account-Id") }
