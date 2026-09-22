@@ -1,6 +1,19 @@
 import CodexSwitch5Core
 import Foundation
 
+func checkQuotaPercentageRounding() {
+    precondition(QuotaPercentage.remaining(fromUsedPercent: 0) == 100)
+    precondition(QuotaPercentage.remaining(fromUsedPercent: 0.1) == 99)
+    precondition(QuotaPercentage.remaining(fromUsedPercent: 99) == 1)
+    precondition(QuotaPercentage.remaining(fromUsedPercent: 99.1) == 0)
+    precondition(QuotaPercentage.remaining(fromUsedPercent: 99.9) == 0)
+    precondition(QuotaPercentage.remaining(fromUsedPercent: 100) == 0)
+    precondition(QuotaPercentage.remaining(fromUsedPercent: -1) == 100)
+    precondition(QuotaPercentage.remaining(fromUsedPercent: 101) == 0)
+    print("额度百分比检查通过：小数剩余额度向下取整并限制在 0% 至 100%。")
+}
+checkQuotaPercentageRounding()
+
 if let flag = CommandLine.arguments.firstIndex(of: "--verify-legacy-import"),
    CommandLine.arguments.count > flag + 2 {
     let source = URL(fileURLWithPath: CommandLine.arguments[flag + 1], isDirectory: true)

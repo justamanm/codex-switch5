@@ -277,7 +277,7 @@ public struct NativeAccountService: Sendable {
               let secondary = limit["secondary_window"] as? [String: Any] else { throw NativeAccountServiceError.invalidResponse }
         func remaining(_ value: [String: Any]) throws -> Int {
             guard let used = value["used_percent"] as? Double else { throw NativeAccountServiceError.invalidResponse }
-            return max(0, min(100, Int((100 - used).rounded())))
+            return QuotaPercentage.remaining(fromUsedPercent: used)
         }
         func reset(_ value: [String: Any]) throws -> Date {
             guard let seconds = value["reset_at"] as? Double else { throw NativeAccountServiceError.invalidResponse }
