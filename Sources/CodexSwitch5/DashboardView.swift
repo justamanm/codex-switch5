@@ -780,7 +780,7 @@ struct DashboardView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(model.text("历史 Token 用量"))
                         .font(.headline)
-                    Text(model.text("柱形为金额，Token 数量显示在柱顶；仅统计本机已记录且可估价的数据"))
+                    Text(model.text("柱形和柱顶均显示金额；Token 数量可在时段详情中查看，仅统计本机已记录且可估价的数据"))
                         .font(.system(size: 14)).foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -804,7 +804,7 @@ struct DashboardView: View {
                     .cornerRadius(3)
                     .annotation(position: .top) {
                         if point.totals.estimatedUSD > 0 || point.totals.unpricedEvents > 0 {
-                            Text(chartAnnotationText(point.totals))
+                            Text(chartPriceText(point.totals))
                                 .font(.system(size: 13).monospacedDigit())
                                 .foregroundStyle(.secondary)
                         }

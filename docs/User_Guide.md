@@ -117,7 +117,7 @@ Open Usage at the top, then choose a page below it.
 
 - The top cards show Token totals and API-equivalent cost estimates for today, this week, and this month.
 - Click Token details on any card to expand or collapse all three periods together. Input and output are the main figures; cached, reasoning, and auto-review usage are supplementary.
-- In Token history, select daily, weekly, or monthly intervals. Bar height shows the API-equivalent estimated cost, while each bar also shows its Token count and cost. Drag horizontally to browse the chart, or use the period selector to inspect a specific period.
+- In Token history, select daily, weekly, or monthly intervals. Bar height and the label above each bar show the API-equivalent estimated cost. Drag horizontally to browse the chart, or use the period selector to inspect a specific period's Token count and cost.
 
 ### Account details
 

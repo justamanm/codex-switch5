@@ -279,7 +279,7 @@ enum AppLocalization {
         "未计入 Token 总数": "Excluded from Token total",
         "（未计入 Token 总数）": "(Excluded from Token total)",
         "自动审查 %@（未计入 Token 总数）": "Auto-review %@ (excluded from Token total)",
-        "柱形为金额，Token 数量显示在柱顶；仅统计本机已记录且可估价的数据": "Bars show estimated cost; Token count is shown above each bar. Only locally recorded and priced data is included",
+        "柱形和柱顶均显示金额；Token 数量可在时段详情中查看，仅统计本机已记录且可估价的数据": "Bars and labels show estimated cost; Token count remains available in the period details. Only locally recorded and priced data is included",
         "%@ · %@ Token": "%@ · %@ tokens",
         "价格为 OpenAI API 等值估算，使用美元。": "Prices are OpenAI API-equivalent estimates in USD.",
         "暂无法估算": "Estimate unavailable",
