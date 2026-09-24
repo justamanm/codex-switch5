@@ -43,6 +43,8 @@ public enum ModelPricing {
     private struct Rate { let input: Double; let cached: Double; let output: Double }
     private static let rates: [String: Rate] = [
         "gpt-6-astra": .init(input: 10, cached: 1, output: 50),
+        "gpt-6-sol": .init(input: 2, cached: 0.2, output: 10),
+        "gpt-6-luna": .init(input: 0.1, cached: 0.01, output: 0.5),
         "gpt-5.6-sol": .init(input: 4, cached: 0.4, output: 20),
         "gpt-5.6": .init(input: 4, cached: 0.4, output: 20),
         "gpt-5.6-terra": .init(input: 2, cached: 0.2, output: 12),

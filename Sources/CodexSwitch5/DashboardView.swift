@@ -780,7 +780,7 @@ struct DashboardView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(model.text("历史 Token 用量"))
                         .font(.headline)
-                    Text(model.text("柱形为 Token，用量金额标在柱形上方；仅统计本机已记录的数据"))
+                    Text(model.text("柱形为金额，Token 数量显示在柱顶；仅统计本机已记录且可估价的数据"))
                         .font(.system(size: 14)).foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -798,29 +798,29 @@ struct DashboardView: View {
                 Chart(tokenHistoryPoints) { point in
                     BarMark(
                         x: .value(model.text("时间"), point.label),
-                        y: .value(model.text("Token 用量"), point.totals.total)
+                        y: .value(model.text("金额"), point.totals.estimatedUSD)
                     )
                     .foregroundStyle(accent.opacity(0.8))
                     .cornerRadius(3)
                     .annotation(position: .top) {
-                        if point.totals.total > 0 {
-                            Text(chartPriceText(point.totals))
+                        if point.totals.estimatedUSD > 0 || point.totals.unpricedEvents > 0 {
+                            Text(chartAnnotationText(point.totals))
                                 .font(.system(size: 13).monospacedDigit())
                                 .foregroundStyle(.secondary)
                         }
                     }
                     .accessibilityLabel(point.label)
-                    .accessibilityValue(model.text("%@ Token，金额 %@", compactTokens(point.totals.total), chartPriceText(point.totals)))
+                    .accessibilityValue(chartAnnotationText(point.totals))
                 }
                 .chartYAxis {
                     AxisMarks(position: .leading) { value in
                         AxisGridLine()
                         AxisValueLabel {
-                            if let amount = value.as(Double.self) { Text(compactTokens(Int(amount.rounded()))) }
+                            if let amount = value.as(Double.self) { Text(String(format: "$%.2f", amount)) }
                         }
                     }
                 }
-                .chartYAxisLabel(model.text("Token 用量"))
+                .chartYAxisLabel(model.text("金额"))
                 .chartXSelection(value: $selectedHistoryPoint)
                 .chartYScale(domain: 0...tokenHistoryChartMaximum)
                 .frame(minWidth: 1050, minHeight: 210)
@@ -946,13 +946,17 @@ struct DashboardView: View {
     }
 
     private var tokenHistoryChartMaximum: Double {
-        max(Double(tokenHistoryPoints.map(\.totals.total).max() ?? 0) * 1.18, 1)
+        max((tokenHistoryPoints.map(\.totals.estimatedUSD).max() ?? 0) * 1.18, 1)
     }
 
     private func chartPriceText(_ totals: TokenUsageTotals) -> String {
-        totals.unpricedEvents > 0
-            ? String(format: "$%.2f*", totals.estimatedUSD)
-            : String(format: "$%.2f", totals.estimatedUSD)
+        if totals.unpricedEvents == 0 { return String(format: "$%.2f", totals.estimatedUSD) }
+        if totals.estimatedUSD > 0 { return String(format: "$%.2f*", totals.estimatedUSD) }
+        return model.text("暂无法估算")
+    }
+
+    private func chartAnnotationText(_ totals: TokenUsageTotals) -> String {
+        model.text("%@ · %@ Token", chartPriceText(totals), compactTokens(totals.total))
     }
 
     private var tokenUsageSortedAccounts: [AccountUsage] {

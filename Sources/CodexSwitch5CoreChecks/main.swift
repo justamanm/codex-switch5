@@ -698,6 +698,25 @@ func checkTokenUsageTracking() throws {
     precondition(reviewTotals.autoReviewTokens == 330, "没有单独统计 codex-auto-review 用量")
     precondition(reviewTotals.unpricedEvents == 0, "codex-auto-review 不应标记成未知价格事件")
     precondition(ModelPricing.estimatedUSD(for: autoReviewEvent) == nil, "codex-auto-review 不应套用公开模型价格")
+    let gpt6Sol = TokenUsageEvent(
+        id: "gpt6-sol", account: "alpha", timestamp: Date(), model: "gpt-6-sol",
+        input: 1_000_000, cachedInput: 200_000, cacheWriteInput: 100_000,
+        output: 10_000, reasoningOutput: 0
+    )
+    precondition(abs((ModelPricing.estimatedUSD(for: gpt6Sol) ?? 0) - 1.79) < 0.000001,
+                 "gpt-6-sol 价格或缓存计算错误")
+    let gpt6Luna = TokenUsageEvent(
+        id: "gpt6-luna", account: "alpha", timestamp: Date(), model: "gpt-6-luna",
+        input: 1_000_000, cachedInput: 200_000, cacheWriteInput: 100_000,
+        output: 10_000, reasoningOutput: 0
+    )
+    precondition(abs((ModelPricing.estimatedUSD(for: gpt6Luna) ?? 0) - 0.0895) < 0.000001,
+                 "gpt-6-luna 价格或缓存计算错误")
+    let unknown = TokenUsageEvent(
+        id: "unknown", account: "alpha", timestamp: Date(), model: "future-model",
+        input: 1_000, cachedInput: 0, cacheWriteInput: 0, output: 100, reasoningOutput: 0
+    )
+    precondition(ModelPricing.estimatedUSD(for: unknown) == nil, "未知模型不得套用其他模型价格")
     let databaseTotals = try tracker.totals(account: "beta", from: switchTime, to: switchTime.addingTimeInterval(10))
     precondition(databaseTotals.total == 1_560, "数据库没有按账号和时间汇总单次 Token 用量记录")
     print("Token 增量统计检查通过：忽略启用前历史、读取新增、避免重复、日志移动与截断、按切换时间归属账号、一次性导入本机记录、数据库汇总与价格计算。")
