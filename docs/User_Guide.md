@@ -44,6 +44,8 @@ To stop, use Cancel in the dialog and wait for the original account to be restor
 2. Click Switch in the center, or beside another account in the list.
 3. Follow the confirmation dialog and verify that the intended account is marked as active.
 
+If ChatGPT is installed on this Mac, Switch5 opens it automatically after a successful switch. When ChatGPT is already running, Switch5 waits up to 30 seconds for it to quit normally before changing accounts. A failed switch does not open ChatGPT.
+
 When using Codex CLI, exit relevant sessions before switching or adding accounts, then reopen them afterward so they pick up the new credentials. The recommendation is optional; any available account can be selected.
 
 ### Expired sign-in

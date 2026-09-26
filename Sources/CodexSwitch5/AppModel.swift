@@ -74,6 +74,8 @@ final class AppModel: ObservableObject {
     private var usageLearningTask: Task<Void, Never>?
     private var tokenTotalsCache: [String: TokenUsageTotals] = [:]
     private var hasStarted = false
+    private let chatGPTTerminationTimeout: Duration = .seconds(30)
+    private let chatGPTTerminationPollInterval: Duration = .milliseconds(200)
     private lazy var usageDatabase = UsageDatabase(
         url: appDataDirectory.appendingPathComponent("codex_switch5.sqlite3")
     )
@@ -581,10 +583,12 @@ final class AppModel: ObservableObject {
         guard let bundleID = Bundle(url: applicationURL)?.bundleIdentifier else { return }
         let applications = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
         for application in applications { application.terminate() }
-        for _ in 0..<50 {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: chatGPTTerminationTimeout)
+        while clock.now < deadline {
             try Task.checkCancellation()
             if applications.allSatisfy({ $0.isTerminated }) { return }
-            try await Task.sleep(for: .milliseconds(200))
+            try await Task.sleep(for: chatGPTTerminationPollInterval)
         }
         throw NSError(domain: "CodexSwitch5", code: 1, userInfo: [
             NSLocalizedDescriptionKey: text("ChatGPT 未能关闭，请手动关闭后重试。账号文件未修改。")
@@ -725,8 +729,8 @@ final class AppModel: ObservableObject {
         tokenUsageRefreshTask?.cancel()
         lastError = nil
         let installedChatGPTURL = chatGPTApplicationURL
-        let shouldReopenChatGPT = isChatGPTRunning(at: installedChatGPTURL)
-        status = shouldReopenChatGPT ? text("正在关闭 ChatGPT…") : text("正在切换到 %@…", account)
+        let shouldCloseChatGPT = isChatGPTRunning(at: installedChatGPTURL)
+        status = shouldCloseChatGPT ? text("正在关闭 ChatGPT…") : text("正在切换到 %@…", account)
         Task {
             defer {
                 isSwitching = false
@@ -740,7 +744,7 @@ final class AppModel: ObservableObject {
                 loadFromDisk()
                 refreshTokenUsage()
                 if sourceRefresh.code == 0 { finishWeeklyQuotaProjection(for: sourceAccount) }
-                if shouldReopenChatGPT {
+                if shouldCloseChatGPT {
                     try await closeChatGPT(at: installedChatGPTURL)
                 }
                 status = text("正在切换到 %@…", account)
@@ -764,7 +768,7 @@ final class AppModel: ObservableObject {
                 loadFromDisk()
                 refreshTokenUsage()
                 if targetRefresh.code == 0 { beginWeeklyQuotaProjection(for: account) }
-                if shouldReopenChatGPT, let installedChatGPTURL {
+                if let installedChatGPTURL {
                     do {
                         try await NSWorkspace.shared.openApplication(at: installedChatGPTURL, configuration: NSWorkspace.OpenConfiguration())
                         status = text("已切换到 %@，已打开 ChatGPT", account)
@@ -775,7 +779,7 @@ final class AppModel: ObservableObject {
                         showNotice(switchOutcomeNotice())
                     }
                 } else {
-                    status = text("已切换到 %@，ChatGPT 未运行，已保持关闭", account)
+                    status = text("已切换到 %@，未检测到 ChatGPT，已跳过自动打开", account)
                     showNotice(switchOutcomeNotice())
                 }
             } catch {

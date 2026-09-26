@@ -371,7 +371,6 @@ enum AppLocalization {
         "移除失败：%@": "Removal failed: %@",
         "正在切换到 %@…": "Switching to %@…",
         "已切换到 %@，已打开 ChatGPT": "Switched to %@ and opened ChatGPT",
-        "已切换到 %@，ChatGPT 未运行，已保持关闭": "Switched to %@; ChatGPT was not running and remains closed",
         "已切换到 %@，未检测到 ChatGPT，已跳过自动打开": "Switched to %@. ChatGPT was not found, so opening it was skipped.",
         "已切换账号，但无法打开 ChatGPT：%@": "The account was switched, but ChatGPT could not be opened: %@",
         "无法运行切换脚本：%@": "Could not run the switching script: %@",
