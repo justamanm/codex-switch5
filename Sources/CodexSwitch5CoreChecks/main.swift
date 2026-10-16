@@ -891,3 +891,4 @@ func checkStartupAccounts() throws {
 }
 try checkStartupAccounts()
 try await checkQuotaRequestIsolation()
+try await checkQuotaAutomaticRefreshPause()

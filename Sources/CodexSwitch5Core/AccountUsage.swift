@@ -13,6 +13,8 @@ public struct AccountUsage: Codable, Identifiable, Equatable, Sendable {
     public let creditBalance: Double?
     public let authInvalid: Bool
     public let authInvalidSince: String?
+    public let automaticRefreshPaused: Bool
+    public let automaticRefreshPausedReason: String?
     public let notedAt: String
 
     public var id: String { name }
@@ -28,6 +30,8 @@ public struct AccountUsage: Codable, Identifiable, Equatable, Sendable {
         case creditBalance = "credit_balance"
         case authInvalid = "auth_invalid"
         case authInvalidSince = "auth_invalid_since"
+        case automaticRefreshPaused = "automatic_refresh_paused"
+        case automaticRefreshPausedReason = "automatic_refresh_paused_reason"
         case notedAt = "noted_at"
     }
 
@@ -43,6 +47,8 @@ public struct AccountUsage: Codable, Identifiable, Equatable, Sendable {
         creditBalance: Double? = nil,
         authInvalid: Bool = false,
         authInvalidSince: String? = nil,
+        automaticRefreshPaused: Bool = false,
+        automaticRefreshPausedReason: String? = nil,
         notedAt: String
     ) {
         self.name = name
@@ -56,6 +62,8 @@ public struct AccountUsage: Codable, Identifiable, Equatable, Sendable {
         self.creditBalance = creditBalance
         self.authInvalid = authInvalid
         self.authInvalidSince = authInvalid ? authInvalidSince : nil
+        self.automaticRefreshPaused = automaticRefreshPaused
+        self.automaticRefreshPausedReason = automaticRefreshPaused ? automaticRefreshPausedReason : nil
         self.notedAt = notedAt
     }
 
@@ -72,6 +80,10 @@ public struct AccountUsage: Codable, Identifiable, Equatable, Sendable {
         creditBalance = try container.decodeIfPresent(Double.self, forKey: .creditBalance)
         authInvalid = try container.decodeIfPresent(Bool.self, forKey: .authInvalid) ?? false
         authInvalidSince = authInvalid ? try container.decodeIfPresent(String.self, forKey: .authInvalidSince) : nil
+        automaticRefreshPaused = try container.decodeIfPresent(Bool.self, forKey: .automaticRefreshPaused) ?? false
+        automaticRefreshPausedReason = automaticRefreshPaused
+            ? try container.decodeIfPresent(String.self, forKey: .automaticRefreshPausedReason)
+            : nil
         notedAt = try container.decode(String.self, forKey: .notedAt)
     }
 }
@@ -139,7 +151,7 @@ public enum AccountRecommender {
         now: Date,
         calendar: Calendar
     ) -> Int {
-        if account.authInvalid { return 3 }
+        if account.authInvalid || account.automaticRefreshPaused { return 3 }
         if isSwitchCandidate(account, currentAccount: currentAccount, now: now, calendar: calendar) { return 0 }
         if account.name == currentAccount { return 1 }
         return 2
@@ -152,6 +164,7 @@ public enum AccountRecommender {
         calendar: Calendar
     ) -> Bool {
         !account.authInvalid
+            && !account.automaticRefreshPaused
             && account.name != currentAccount
             && account.weeklyRemaining > 0
             && account.fiveHourRemaining > 0

@@ -18,6 +18,7 @@ public struct QuotaObservation: Codable, Equatable, Sendable {
 
     public init?(usage: AccountUsage, activeAccount: String?, calendar: Calendar = .current) {
         guard !usage.authInvalid,
+              !usage.automaticRefreshPaused,
               (0...100).contains(usage.fiveHourRemaining),
               (0...100).contains(usage.weeklyRemaining),
               let timestamp = Self.date(usage.notedAt) else { return nil }

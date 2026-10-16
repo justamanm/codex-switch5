@@ -999,6 +999,7 @@ final class AppModel: ObservableObject {
             guard
                 account.weeklyRemaining > 0,
                 !account.authInvalid,
+                !account.automaticRefreshPaused,
                 let resetDate = AccountRecommender.resetDate(account.fiveHourReset)
             else { return nil }
             return (account, resetDate, "\(account.name)|\(account.fiveHourReset)")
@@ -1037,7 +1038,9 @@ final class AppModel: ObservableObject {
         } else if arguments.count > 1 {
             requested = [arguments[1]]
         } else {
-            let skipped = arguments.first == "refresh-auto" ? Set(before.filter(\.authInvalid).map(\.name)) : []
+            let skipped = arguments.first == "refresh-auto"
+                ? Set(before.filter { $0.authInvalid || $0.automaticRefreshPaused }.map(\.name))
+                : []
             requested = knownAccountNames().subtracting(skipped)
         }
         let result: (code: Int32, output: String)
@@ -1046,8 +1049,14 @@ final class AppModel: ObservableObject {
                 try nativeAccountService.switchAccount(from: currentName, to: target)
                 result = (0, text("账号已切换"))
             } else if isQuotaQuery {
-                let skipInvalid = arguments.first == "refresh-auto" ? Set(before.filter(\.authInvalid).map(\.name)) : []
-                _ = try await nativeAccountService.refresh(accounts: requested, currentAccount: currentName, skippingInvalid: skipInvalid)
+                let skippedAccounts = arguments.first == "refresh-auto"
+                    ? Set(before.filter { $0.authInvalid || $0.automaticRefreshPaused }.map(\.name))
+                    : []
+                _ = try await nativeAccountService.refresh(
+                    accounts: requested,
+                    currentAccount: currentName,
+                    skippingAccounts: skippedAccounts
+                )
                 result = (0, text("额度已更新"))
             } else {
                 result = (1, text("不支持的账号操作"))

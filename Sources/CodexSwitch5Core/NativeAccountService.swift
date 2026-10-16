@@ -19,9 +19,9 @@ public struct NativeAccountService: Sendable {
         self.session = session
     }
 
-    public func refresh(accounts: Set<String>, currentAccount: String?, skippingInvalid: Set<String> = []) async throws -> [AccountUsage] {
+    public func refresh(accounts: Set<String>, currentAccount: String?, skippingAccounts: Set<String> = []) async throws -> [AccountUsage] {
         var records = try loadUsage()
-        let requested = accounts.sorted().filter { !skippingInvalid.contains($0) }
+        let requested = accounts.sorted().filter { !skippingAccounts.contains($0) }
         var failedAccounts: [String] = []
         for start in stride(from: 0, to: requested.count, by: 3) {
             let batch = Array(requested[start..<min(start + 3, requested.count)])
@@ -55,6 +55,9 @@ public struct NativeAccountService: Sendable {
                     records[account] = usage
                 case .failure(let error) where error.isAuthenticationFailure:
                     records[account] = invalidUsage(account: account, previous: records[account])
+                case .failure(let error) where error.shouldPauseAutomaticRefresh:
+                    records[account] = pausedUsage(account: account, previous: records[account], reason: error.localizedDescription)
+                    failedAccounts.append(account)
                 case .failure:
                     failedAccounts.append(account)
                 }
@@ -402,6 +405,40 @@ public struct NativeAccountService: Sendable {
         return AccountUsage(name: account, fiveHourRemaining: 0, fiveHourReset: formatter.string(from: now), weeklyRemaining: 0, weeklyReset: "\(Calendar.current.component(.month, from: now)).\(Calendar.current.component(.day, from: now))", resetCards: 0, authInvalid: true, authInvalidSince: invalidSince, notedAt: ISO8601DateFormatter().string(from: now))
     }
 
+    private func pausedUsage(account: String, previous: AccountUsage?, reason: String?) -> AccountUsage {
+        let retained = previous ?? latestSuccessfulUsage(account: account)
+        if let retained {
+            return AccountUsage(
+                name: account,
+                fiveHourRemaining: retained.fiveHourRemaining,
+                fiveHourReset: retained.fiveHourReset,
+                weeklyRemaining: retained.weeklyRemaining,
+                weeklyReset: retained.weeklyReset,
+                weeklyResetAt: retained.weeklyResetAt,
+                resetCards: retained.resetCards,
+                resetCardExpirations: retained.resetCardExpirations,
+                creditBalance: retained.creditBalance,
+                automaticRefreshPaused: true,
+                automaticRefreshPausedReason: reason,
+                notedAt: retained.notedAt
+            )
+        }
+        let now = Date()
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
+        return AccountUsage(
+            name: account,
+            fiveHourRemaining: 0,
+            fiveHourReset: formatter.string(from: now),
+            weeklyRemaining: 0,
+            weeklyReset: "\(Calendar.current.component(.month, from: now)).\(Calendar.current.component(.day, from: now))",
+            resetCards: 0,
+            automaticRefreshPaused: true,
+            automaticRefreshPausedReason: reason,
+            notedAt: ISO8601DateFormatter().string(from: now)
+        )
+    }
+
     private func latestSuccessfulUsage(account: String) -> AccountUsage? {
         let observation: QuotaObservation?
         if let usageDatabase {
@@ -445,7 +482,22 @@ public struct NativeAccountService: Sendable {
 
 public enum NativeAccountServiceError: LocalizedError, Sendable { case http(Int), authenticationExpired, invalidCredentials(String), invalidResponse, transport(String), partialFailure([String])
     public var errorDescription: String? { switch self { case .http(let code): "查询用量失败（HTTP \(code)）"; case .authenticationExpired: "登录令牌已失效，请重新登录账号。"; case .invalidCredentials(let message): message; case .invalidResponse: "用量服务返回了无法识别的数据。"; case .transport(let message): "网络查询失败：\(message)"; case .partialFailure(let accounts): "部分账号查询失败：\(accounts.joined(separator: ", "))" } }
-    var isAuthenticationFailure: Bool { if case .authenticationExpired = self { true } else { false } }
+    var isAuthenticationFailure: Bool {
+        switch self {
+        case .authenticationExpired, .invalidCredentials, .http(401): true
+        default: false
+        }
+    }
+    var shouldPauseAutomaticRefresh: Bool {
+        switch self {
+        case .invalidResponse:
+            true
+        case .http(let code):
+            (400...499).contains(code) && ![401, 408, 425, 429].contains(code)
+        default:
+            false
+        }
+    }
     var isTemporary: Bool {
         switch self {
         case .http(429), .transport:

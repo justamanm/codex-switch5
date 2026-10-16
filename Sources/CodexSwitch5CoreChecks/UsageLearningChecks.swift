@@ -4,12 +4,21 @@ import Foundation
 func checkUsageLearning() throws {
     var calendar = Calendar(identifier: .gregorian)
     calendar.timeZone = TimeZone(secondsFromGMT: 0)!
-    let base = QuotaObservation.date("2026-09-08T12:00:00Z")!
+    calendar.firstWeekday = 2
+    let weekStart = calendar.dateInterval(of: .weekOfYear, for: Date())!.start
+    let base = calendar.date(byAdding: .hour, value: 36, to: weekStart)!
     let formatter = ISO8601DateFormatter()
+    let quotaFormatter = DateFormatter()
+    quotaFormatter.calendar = calendar
+    quotaFormatter.locale = Locale(identifier: "en_US_POSIX")
+    quotaFormatter.timeZone = calendar.timeZone
+    quotaFormatter.dateFormat = "yyyy-MM-dd HH:mm"
+    let defaultFiveHourReset = quotaFormatter.string(from: base.addingTimeInterval(5 * 3600))
+    let defaultWeeklyResetAt = formatter.string(from: base.addingTimeInterval(4 * 24 * 3600))
     func usage(_ name: String = "a", minute: Int, five: Int, weekly: Int = 80,
-               reset: String = "2026-09-08 17:00", cards: Int = 1, invalid: Bool = false) -> AccountUsage {
-        AccountUsage(name: name, fiveHourRemaining: five, fiveHourReset: reset,
-                     weeklyRemaining: weekly, weeklyReset: "9.12", weeklyResetAt: "2026-09-12T12:00:00Z",
+               reset: String? = nil, cards: Int = 1, invalid: Bool = false) -> AccountUsage {
+        AccountUsage(name: name, fiveHourRemaining: five, fiveHourReset: reset ?? defaultFiveHourReset,
+                     weeklyRemaining: weekly, weeklyReset: "本周", weeklyResetAt: defaultWeeklyResetAt,
                      resetCards: cards, authInvalid: invalid,
                      notedAt: formatter.string(from: base.addingTimeInterval(Double(minute) * 60)))
     }

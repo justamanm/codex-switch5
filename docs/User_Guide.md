@@ -111,6 +111,8 @@ Automatic refresh schedules the next round after the current round finishes, so 
 
 If sign-in expires, the app keeps the last valid quota, reset-card count, and known reset-card expiration times, and marks the account for sign-in again. Automatic refresh skips accounts already marked this way. A manual refresh can try the account again; after sign-in becomes valid and the reset-card details are retrieved successfully, the saved expiration times are updated. Saved expiration times are cleared only when the service confirms that there are no reset cards.
 
+If the quota service returns a non-recovering response such as HTTP 402, the app keeps the last valid quota and pauses automatic queries for that account. The account is excluded from recommendations and reset-triggered queries. Manual refresh remains available and clears the paused state after a successful query. Network failures, HTTP 429, and server errors remain temporary failures and do not permanently pause the account after a single failure.
+
 ## View usage statistics
 
 Open Usage at the top, then choose a page below it.

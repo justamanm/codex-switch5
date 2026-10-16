@@ -1825,9 +1825,9 @@ private struct AccountDashboardRow: View {
     private var quotaColumns: some View {
         HStack(alignment: .top, spacing: 32) {
             QuotaBar(title: model.text("5 小时剩余"), value: account.fiveHourRemaining,
-                     reset: account.fiveHourReset, isHistorical: account.authInvalid)
+                     reset: account.fiveHourReset, isHistorical: account.authInvalid || account.automaticRefreshPaused)
             QuotaBar(title: model.text("周额度剩余"), value: account.weeklyRemaining,
-                     reset: account.weeklyReset, isHistorical: account.authInvalid)
+                     reset: account.weeklyReset, isHistorical: account.authInvalid || account.automaticRefreshPaused)
         }
         .frame(maxWidth: .infinity)
     }
@@ -1851,6 +1851,11 @@ private struct AccountDashboardRow: View {
             }
             if account.authInvalid {
                 InvalidAccountBadge(invalidSince: account.authInvalidSince, reauthenticateAction: reauthenticateAction)
+            } else if account.automaticRefreshPaused {
+                Text(model.text("自动查询已暂停"))
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .help(account.automaticRefreshPausedReason ?? model.text("手动刷新可重新尝试"))
             } else if isCurrent {
                 Text(model.text("正在使用")).font(.system(size: 12)).foregroundStyle(accent)
             } else if isRecommended {
@@ -1892,7 +1897,13 @@ private struct AccountDashboardRow: View {
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
             .accessibilityLabel(model.text("刷新"))
-            .help(model.text(account.authInvalid ? "重新登录后手动查询此账号" : "立即查询此账号，不等待"))
+            .help(model.text(
+                account.authInvalid
+                    ? "重新登录后手动查询此账号"
+                    : account.automaticRefreshPaused
+                        ? "自动查询已暂停，点击手动重试"
+                        : "立即查询此账号，不等待"
+            ))
             .disabled(isRefreshing || isSwitching)
 
             Menu {
